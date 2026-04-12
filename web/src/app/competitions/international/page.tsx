@@ -123,8 +123,9 @@ export default async function InternationalHubPage() {
             World Cup
           </h2>
           <p className="mt-2 text-sm text-slate-600">
-            Group draw runs once eight qualifiers are in the World Cup field for this season (usually from the prior
-            international cycle). You do not need to finish the current season&apos;s Nations League or Gold Cup first.
+            Qualifiers fill the <strong>next season&apos;s</strong> World Cup after each regional tournament (top 2 per
+            group). Draw balanced groups from Admin → Season (Tournaments mode) when ready, or use{" "}
+            <strong>Draw World Cup groups</strong> here once eight teams are listed for this season.
           </p>
           {defaultSeason ?
             <InternationalTournamentActionBar

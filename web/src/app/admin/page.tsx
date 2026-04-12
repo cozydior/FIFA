@@ -387,6 +387,7 @@ export default function AdminPage() {
             <SeasonMakerSection />
             <SimPreviewToggleSection />
             <TournamentsModeToggleSection />
+            <InternationalTournamentAdminSection />
             <EndOfSeasonBundleSection />
             <SetMarketValuesSection />
             <SeasonAwardsSection players={players} seasons={seasons} />
@@ -417,6 +418,161 @@ export default function AdminPage() {
         )}
       </div>
     </div>
+  );
+}
+
+function InternationalTournamentAdminSection() {
+  const [tmOn, setTmOn] = useState(false);
+  const [wcSeason, setWcSeason] = useState("");
+  const [qualSeason, setQualSeason] = useState("");
+  const [clearSeason, setClearSeason] = useState("");
+  const [clearEntries, setClearEntries] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [pending, setPending] = useState<"seed" | "clear" | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/tournaments-mode")
+      .then((r) => r.json())
+      .then((d: { enabled?: boolean }) => setTmOn(!!d.enabled))
+      .catch(() => setTmOn(false));
+  }, []);
+
+  async function seedWorldCup() {
+    setPending("seed");
+    setMsg(null);
+    try {
+      const res = await fetch("/api/admin/world-cup-seed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          worldCupSeasonLabel: wcSeason.trim(),
+          qualifierSeasonLabel: qualSeason.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      setMsg(
+        `World Cup seeded for ${data.worldCupSeasonLabel} from qualifiers in ${data.qualifierSeasonLabel}.`,
+      );
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function clearFixtures() {
+    setPending("clear");
+    setMsg(null);
+    try {
+      const res = await fetch("/api/admin/international-clear-fixtures", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          seasonLabel: clearSeason.trim(),
+          slug: "world_cup",
+          clearEntries,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      setMsg(
+        `Cleared World Cup fixtures${data.entriesCleared ? " and WC entries" : ""} for ${clearSeason.trim() || "—"}.`,
+      );
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setPending(null);
+    }
+  }
+
+  if (!tmOn) {
+    return (
+      <section className="rounded-2xl border border-zinc-200/90 bg-zinc-50/50 p-6 shadow-sm">
+        <h2 className="mb-2 text-lg font-semibold text-zinc-900">International — World Cup &amp; fixtures</h2>
+        <p className="text-sm text-zinc-500">
+          Turn on <strong>Tournaments mode</strong> above to show seed World Cup and delete World Cup fixtures.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-2xl border border-indigo-200/90 bg-indigo-50/30 p-6 shadow-sm">
+      <h2 className="mb-2 text-lg font-semibold text-zinc-900">International — World Cup &amp; fixtures</h2>
+      <p className="mb-4 text-sm text-zinc-600">
+        World Cup qualifiers are registered automatically to the <strong>next season</strong> after each regional
+        tournament (top 2 per group). Use <strong>Seed World Cup</strong> to draw balanced groups (2 UEFA + 2 FIFA per
+        group) from the prior season&apos;s completed Nations League + Gold Cup groups.{" "}
+        <strong>Delete World Cup fixtures</strong> only affects the World Cup for the season you enter (optional: clear WC
+        entries too).
+      </p>
+      <div className="space-y-4">
+        <div className="rounded-xl border border-indigo-200/80 bg-white/80 p-4">
+          <h3 className="text-sm font-bold text-zinc-900">Seed World Cup (balanced groups)</h3>
+          <div className="mt-3 flex flex-wrap items-end gap-2">
+            <label className="flex flex-col gap-1 text-xs font-semibold text-zinc-600">
+              World Cup season
+              <input
+                value={wcSeason}
+                onChange={(e) => setWcSeason(e.target.value)}
+                placeholder="Season 2"
+                className="rounded-lg border border-zinc-300 px-2 py-1.5 text-sm"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-semibold text-zinc-600">
+              Qualifier season (NL + GC)
+              <input
+                value={qualSeason}
+                onChange={(e) => setQualSeason(e.target.value)}
+                placeholder="Season 1"
+                className="rounded-lg border border-zinc-300 px-2 py-1.5 text-sm"
+              />
+            </label>
+            <button
+              type="button"
+              disabled={pending !== null}
+              onClick={() => void seedWorldCup()}
+              className="rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800 disabled:opacity-50"
+            >
+              {pending === "seed" ? "Seeding…" : "Seed World Cup"}
+            </button>
+          </div>
+        </div>
+        <div className="rounded-xl border border-rose-200/80 bg-white/80 p-4">
+          <h3 className="text-sm font-bold text-zinc-900">Delete World Cup fixtures</h3>
+          <div className="mt-3 flex flex-wrap items-end gap-2">
+            <label className="flex flex-col gap-1 text-xs font-semibold text-zinc-600">
+              World Cup season
+              <input
+                value={clearSeason}
+                onChange={(e) => setClearSeason(e.target.value)}
+                placeholder="Season 2"
+                className="rounded-lg border border-zinc-300 px-2 py-1.5 text-sm"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-xs font-semibold text-zinc-700">
+              <input
+                type="checkbox"
+                checked={clearEntries}
+                onChange={(e) => setClearEntries(e.target.checked)}
+                className="rounded border-zinc-400"
+              />
+              Also clear WC entries (qualifiers)
+            </label>
+            <button
+              type="button"
+              disabled={pending !== null}
+              onClick={() => void clearFixtures()}
+              className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-900 hover:bg-rose-100 disabled:opacity-50"
+            >
+              {pending === "clear" ? "Deleting…" : "Delete World Cup fixtures"}
+            </button>
+          </div>
+        </div>
+      </div>
+      {msg && <p className="mt-3 text-sm text-zinc-700">{msg}</p>}
+    </section>
   );
 }
 
@@ -791,8 +947,9 @@ function TournamentsModeToggleSection() {
       <p className="mb-3 text-sm text-zinc-600">
         When enabled, the Matchday dashboard shows <strong>Seed CL</strong>, <strong>Preview seed</strong> (if Sim preview
         is on), and <strong>Refresh semis</strong> for Champions League, and the international hub shows{" "}
-        <strong>Generate Nations League</strong> / <strong>Generate Gold Cup</strong> (World Cup draw stays available
-        without this). Default is <strong>off</strong> so those actions stay hidden in normal play.
+        <strong>Generate Nations League</strong> / <strong>Generate Gold Cup</strong>, plus{" "}
+        <strong>Seed World Cup</strong> / <strong>Delete World Cup fixtures</strong>. Default is{" "}
+        <strong>off</strong> so those actions stay hidden in normal play.
       </p>
       <label className="flex cursor-pointer items-center gap-3 text-sm font-semibold text-zinc-800">
         <input

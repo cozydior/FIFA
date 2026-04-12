@@ -1,10 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import {
-  INTERNATIONAL_CALENDAR_WEEK_MIN,
-  WORLD_CUP_GROUP_WEEK_START,
-} from "@/lib/calendarPhases";
+import { INTERNATIONAL_CALENDAR_WEEK_MIN } from "@/lib/calendarPhases";
 import { fisherYatesShuffle } from "@/lib/shuffle";
 import { computeStandings, type FixtureRow } from "@/lib/standings";
+import { tryInsertWorldCupGroupStageIfReady } from "@/lib/worldCupFixtures";
+import { getNextSeasonLabelAfter } from "@/lib/nextSeason";
 
 type NT = {
   id: string;
@@ -92,11 +91,6 @@ export async function bootstrapRegionalInternationalCompetition(
   }));
   const { error: fe } = await supabase.from("international_fixtures").insert(fixtureRows);
   if (fe) throw new Error(fe.message);
-
-  await supabase.from("international_competitions").upsert(
-    { season_label: seasonLabel, slug: "world_cup", name: "FIFA World Cup" },
-    { onConflict: "season_label,slug" },
-  );
 }
 
 export async function ensureWorldCupShell(supabase: SupabaseClient, seasonLabel: string): Promise<void> {
@@ -111,56 +105,6 @@ export async function ensureWorldCupShell(supabase: SupabaseClient, seasonLabel:
   if (we || !wc) throw new Error(we?.message ?? "World Cup upsert failed");
   await supabase.from("international_entries").delete().eq("competition_id", wc.id);
   await supabase.from("international_fixtures").delete().eq("competition_id", wc.id);
-}
-
-/**
- * If eight WC qualifiers exist and no group fixtures yet, inserts WC groups (weeks from
- * {@link WORLD_CUP_GROUP_WEEK_START}). Used when qualifiers are present (e.g. after regional knockouts) or manual draw.
- */
-export async function tryInsertWorldCupGroupStageIfReady(
-  supabase: SupabaseClient,
-  seasonLabel: string,
-): Promise<{ inserted: boolean }> {
-  const { data: wc } = await supabase
-    .from("international_competitions")
-    .select("id")
-    .eq("season_label", seasonLabel)
-    .eq("slug", "world_cup")
-    .maybeSingle();
-  if (!wc) return { inserted: false };
-
-  const { data: existingWcFixtures } = await supabase
-    .from("international_fixtures")
-    .select("id")
-    .eq("competition_id", wc.id);
-  if ((existingWcFixtures ?? []).length > 0) return { inserted: false };
-
-  const { data: wcEntries } = await supabase
-    .from("international_entries")
-    .select("national_team_id")
-    .eq("competition_id", wc.id);
-  const wcIds = [...new Set((wcEntries ?? []).map((e) => e.national_team_id))];
-  if (wcIds.length !== 8) return { inserted: false };
-
-  const shuffled = fisherYatesShuffle(wcIds);
-  const groupA = shuffled.slice(0, 4);
-  const groupB = shuffled.slice(4, 8);
-  const rows = [
-    ...roundRobin(groupA, WORLD_CUP_GROUP_WEEK_START).map((m) => ({ ...m, group: "A" as const })),
-    ...roundRobin(groupB, WORLD_CUP_GROUP_WEEK_START).map((m) => ({ ...m, group: "B" as const })),
-  ].map((m) => ({
-    competition_id: wc.id,
-    stage: "group",
-    group_name: m.group,
-    week: m.week,
-    home_national_team_id: m.home,
-    away_national_team_id: m.away,
-    status: "scheduled",
-  }));
-  if (rows.length === 0) return { inserted: false };
-  const { error } = await supabase.from("international_fixtures").insert(rows);
-  if (error) throw new Error(error.message);
-  return { inserted: true };
 }
 
 /** Full bootstrap: both regional tournaments + empty World Cup shell (legacy Admin “generate all”). */
@@ -401,13 +345,19 @@ async function ensureWorldCupEntriesFromRegional(
   topA: string[],
   topB: string[],
 ) {
-  const { data: wc } = await supabase
+  const wcSeason = await getNextSeasonLabelAfter(supabase, seasonLabel);
+  if (!wcSeason) return;
+
+  const { data: wc, error: wce } = await supabase
     .from("international_competitions")
+    .upsert(
+      { season_label: wcSeason, slug: "world_cup", name: "FIFA World Cup" },
+      { onConflict: "season_label,slug" },
+    )
     .select("id")
-    .eq("season_label", seasonLabel)
-    .eq("slug", "world_cup")
-    .maybeSingle();
-  if (!wc) return;
+    .single();
+  if (wce || !wc) return;
+
   const qualifiers = [
     { id: topA[0], via: `${regionalSlug} A1` },
     { id: topA[1], via: `${regionalSlug} A2` },
@@ -426,7 +376,5 @@ async function ensureWorldCupEntriesFromRegional(
         { onConflict: "competition_id,national_team_id" },
       );
   }
-
-  await tryInsertWorldCupGroupStageIfReady(supabase, seasonLabel);
 }
 

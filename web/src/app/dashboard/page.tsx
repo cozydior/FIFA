@@ -268,13 +268,13 @@ export default async function DashboardPage({
       await supabase
         .from("fixtures")
         .select(
-          "id, week, cup_round, status, home_score, away_score, home_team_id, away_team_id, country, score_detail",
+          "id, week, cup_round, status, home_score, away_score, home_team_id, away_team_id, country, score_detail, sort_order",
         )
         .eq("season_label", selectedSeason)
         .eq("competition", "regional_cup")
         .eq("country", domesticCountryName)
         .order("week")
-    : { data: [] as { id: string; week: number; cup_round: string | null; status: string; home_score: number | null; away_score: number | null; home_team_id: string; away_team_id: string; country: string | null; score_detail: { displayLine?: string } | null }[] };
+    : { data: [] as { id: string; week: number; cup_round: string | null; status: string; home_score: number | null; away_score: number | null; home_team_id: string; away_team_id: string; country: string | null; score_detail: { displayLine?: string } | null; sort_order: number | null }[] };
 
   const cupTeamIds = [
     ...new Set(
@@ -283,12 +283,21 @@ export default async function DashboardPage({
   ];
   const { data: regionalTeamRows } =
     cupTeamIds.length > 0 ?
-      await supabase.from("teams").select("id, name, logo_url").in("id", cupTeamIds)
-    : { data: [] as { id: string; name: string; logo_url: string | null }[] };
+      await supabase
+        .from("teams")
+        .select("id, name, logo_url, leagues(division)")
+        .in("id", cupTeamIds)
+    : { data: [] as { id: string; name: string; logo_url: string | null; leagues: { division: string } | { division: string }[] | null }[] };
   const regionalTeamName = new Map((regionalTeamRows ?? []).map((t) => [t.id, t.name]));
   const regionalTeamLogo = new Map(
     (regionalTeamRows ?? []).map((t) => [t.id, t.logo_url as string | null]),
   );
+  const regionalTeamDivision = new Map<string, string>();
+  for (const t of regionalTeamRows ?? []) {
+    const L = t.leagues as { division?: string } | { division?: string }[] | null | undefined;
+    const div = Array.isArray(L) ? L[0]?.division : L?.division;
+    if (typeof div === "string" && div.trim()) regionalTeamDivision.set(t.id, div.trim());
+  }
 
   const [nationsLeague, goldCup, worldCup, clEntries, clFixturesRaw, , honoursPayload, cupHonoursPayload] =
     await Promise.all([
@@ -1043,6 +1052,7 @@ export default async function DashboardPage({
                               }))}
                               teamName={regionalTeamName}
                               teamLogo={regionalTeamLogo}
+                              teamDivision={regionalTeamDivision}
                             />
                           )}
                         </div>

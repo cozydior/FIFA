@@ -11,6 +11,8 @@ export type RegionalCupFx = {
   away_score: number | null;
   home_team_id: string;
   away_team_id: string;
+  /** Season-maker / progression order within the round (QF1…QF4 feed SF slots). */
+  sort_order?: number | null;
   /** Rich score line from knockout sim (e.g. `1-1 AET (2-1)`) */
   scoreDisplay?: string | null;
 };
@@ -31,12 +33,26 @@ function roundLabel(r: string | null): string {
   return r;
 }
 
+function DivisionBadge({ division }: { division: string }) {
+  return (
+    <span
+      className="shrink-0 rounded-md bg-slate-200/80 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-slate-700"
+      title="League division"
+    >
+      {division}
+    </span>
+  );
+}
+
 function TieCard(props: {
   f: RegionalCupFx;
   homeName: string;
   awayName: string;
   homeLogo: string | null;
   awayLogo: string | null;
+  homeDivision?: string | null;
+  awayDivision?: string | null;
+  slotLabel?: string;
 }) {
   const { f } = props;
   const done =
@@ -52,13 +68,18 @@ function TieCard(props: {
   return (
     <div className="rounded-lg border border-slate-200/90 bg-white px-3 py-2.5 shadow-sm">
       <p className="text-[0.65rem] font-bold uppercase tracking-wide text-slate-500">
+        {props.slotLabel ?
+          <span className="mr-2 rounded bg-indigo-100 px-1.5 py-0.5 font-mono text-indigo-900">
+            {props.slotLabel}
+          </span>
+        : null}
         <span className="font-mono text-slate-400">Week {f.week}</span>
       </p>
       <div className="mt-2 flex flex-col gap-1.5 text-sm">
         <div className="flex items-center justify-between gap-2">
           <Link
             href={`/team/${f.home_team_id}`}
-            className={`inline-flex min-w-0 items-center gap-2 truncate hover:text-emerald-800 hover:underline ${
+            className={`inline-flex min-w-0 max-w-[min(100%,14rem)] flex-1 items-center gap-1.5 hover:text-emerald-800 hover:underline sm:max-w-none ${
               hWin ? "rounded px-1.5 py-0.5 font-bold text-emerald-950 bg-emerald-100" : "text-slate-800"
             }`}
           >
@@ -70,7 +91,8 @@ function TieCard(props: {
                 className="h-7 w-7 shrink-0 rounded-md object-contain"
               />
             : null}
-            <span className="truncate">{props.homeName}</span>
+            <span className="min-w-0 truncate">{props.homeName}</span>
+            {props.homeDivision ? <DivisionBadge division={props.homeDivision} /> : null}
           </Link>
           {done ?
             <span className="shrink-0 font-mono text-xs tabular-nums text-slate-600">
@@ -81,7 +103,7 @@ function TieCard(props: {
         <div className="flex items-center justify-between gap-2">
           <Link
             href={`/team/${f.away_team_id}`}
-            className={`inline-flex min-w-0 items-center gap-2 truncate hover:text-emerald-800 hover:underline ${
+            className={`inline-flex min-w-0 max-w-[min(100%,14rem)] flex-1 items-center gap-1.5 hover:text-emerald-800 hover:underline sm:max-w-none ${
               aWin ? "rounded px-1.5 py-0.5 font-bold text-emerald-950 bg-emerald-100" : "text-slate-800"
             }`}
           >
@@ -93,7 +115,8 @@ function TieCard(props: {
                 className="h-7 w-7 shrink-0 rounded-md object-contain"
               />
             : null}
-            <span className="truncate">{props.awayName}</span>
+            <span className="min-w-0 truncate">{props.awayName}</span>
+            {props.awayDivision ? <DivisionBadge division={props.awayDivision} /> : null}
           </Link>
           {done ?
             <span className="shrink-0 font-mono text-xs tabular-nums text-slate-600">
@@ -120,8 +143,10 @@ export function RegionalCupBracket(props: {
   fixtures: RegionalCupFx[];
   teamName: Map<string, string>;
   teamLogo: Map<string, string | null>;
+  /** League division label per team (e.g. D1 / D2), same styling as Past winners. */
+  teamDivision?: Map<string, string>;
 }) {
-  const { fixtures, teamName, teamLogo } = props;
+  const { fixtures, teamName, teamLogo, teamDivision } = props;
   if (fixtures.length === 0) return null;
 
   const byRound = new Map<string, RegionalCupFx[]>();
@@ -138,6 +163,14 @@ export function RegionalCupBracket(props: {
     return a[0].localeCompare(b[0]);
   });
 
+  function sortInRound(a: RegionalCupFx, b: RegionalCupFx): number {
+    const sa = a.sort_order ?? 0;
+    const sb = b.sort_order ?? 0;
+    if (sa !== sb) return sa - sb;
+    if (a.week !== b.week) return a.week - b.week;
+    return a.id.localeCompare(b.id);
+  }
+
   return (
     <div className="rounded-xl border border-indigo-200/90 bg-gradient-to-br from-indigo-50/80 to-white p-4 shadow-sm">
       <h4 className="text-sm font-black uppercase tracking-wide text-indigo-950">
@@ -150,8 +183,14 @@ export function RegionalCupBracket(props: {
 
       <div className="mt-4 flex flex-col gap-6 md:flex-row md:items-stretch md:gap-0">
         {rounds.flatMap(([roundKey, list], index) => {
-          const sorted = [...list].sort((a, b) => a.week - b.week || a.id.localeCompare(b.id));
+          const sorted = [...list].sort(sortInRound);
           const isLast = index === rounds.length - 1;
+          const isQf = roundKey === "QF";
+          const slotPrefix =
+            roundKey === "QF" ? "QF"
+            : roundKey === "SF" ? "SF"
+            : roundKey === "F" ? "F"
+            : "";
           const column = (
             <div
               key={roundKey}
@@ -162,16 +201,27 @@ export function RegionalCupBracket(props: {
               <p className="text-[0.65rem] font-bold uppercase tracking-wider text-slate-500">
                 {roundLabel(roundKey === "OTHER" ? null : roundKey)}
               </p>
-              {sorted.map((f) => (
-                <TieCard
-                  key={f.id}
-                  f={f}
-                  homeName={teamName.get(f.home_team_id) ?? "Home"}
-                  awayName={teamName.get(f.away_team_id) ?? "Away"}
-                  homeLogo={teamLogo.get(f.home_team_id) ?? null}
-                  awayLogo={teamLogo.get(f.away_team_id) ?? null}
-                />
-              ))}
+              <div
+                className={
+                  isQf ?
+                    "grid grid-cols-1 gap-3 sm:grid-cols-2"
+                  : "flex flex-col gap-4"
+                }
+              >
+                {sorted.map((f, i) => (
+                  <TieCard
+                    key={f.id}
+                    f={f}
+                    slotLabel={slotPrefix ? `${slotPrefix}${i + 1}` : undefined}
+                    homeName={teamName.get(f.home_team_id) ?? "Home"}
+                    awayName={teamName.get(f.away_team_id) ?? "Away"}
+                    homeLogo={teamLogo.get(f.home_team_id) ?? null}
+                    awayLogo={teamLogo.get(f.away_team_id) ?? null}
+                    homeDivision={teamDivision?.get(f.home_team_id) ?? null}
+                    awayDivision={teamDivision?.get(f.away_team_id) ?? null}
+                  />
+                ))}
+              </div>
             </div>
           );
           if (isLast) return [column];

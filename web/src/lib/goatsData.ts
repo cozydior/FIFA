@@ -40,9 +40,7 @@ export async function fetchGoatHistory(): Promise<SeasonGoatPair[]> {
   const supabase = getSupabaseAdmin();
   const { data: awards, error } = await supabase
     .from("season_player_awards")
-    .select(
-      "season_label, award_type, player_id, players(id, name, role, profile_pic_url, team_id, teams(id, name, logo_url))",
-    )
+    .select("season_label, award_type, player_id")
     .order("season_label", { ascending: false });
 
   if (error) throw new Error(error.message);
@@ -51,11 +49,17 @@ export async function fetchGoatHistory(): Promise<SeasonGoatPair[]> {
   const playerIds = [...new Set(awards.map((a) => a.player_id))];
   const seasonLabels = [...new Set(awards.map((a) => a.season_label))];
 
-  const { data: statsRows } = await supabase
-    .from("stats")
-    .select("player_id, season, goals, saves, shots_taken, shots_faced")
-    .in("player_id", playerIds)
-    .in("season", seasonLabels);
+  const [{ data: statsRows }, { data: playerRows }] = await Promise.all([
+    supabase
+      .from("stats")
+      .select("player_id, season, goals, saves, shots_taken, shots_faced")
+      .in("player_id", playerIds)
+      .in("season", seasonLabels),
+    supabase
+      .from("players")
+      .select("id, name, role, profile_pic_url, team_id, teams(id, name, logo_url)")
+      .in("id", playerIds),
+  ]);
 
   const statKey = (pid: string, s: string) => `${pid}::${s}`;
   const statMap = new Map(
@@ -70,10 +74,14 @@ export async function fetchGoatHistory(): Promise<SeasonGoatPair[]> {
     ]),
   );
 
+  const playerById = new Map(
+    (playerRows ?? []).map((p) => [p.id, p as PlayerEmbed]),
+  );
+
   const bySeason = new Map<string, SeasonGoatPair>();
 
   for (const a of awards) {
-    const p = a.players as unknown as PlayerEmbed | null;
+    const p = playerById.get(a.player_id);
     if (!p?.id) continue;
     const rawTeam = p.teams;
     const t = Array.isArray(rawTeam) ? rawTeam[0] ?? null : rawTeam;

@@ -9,7 +9,8 @@ import {
   type GoatWinner,
 } from "@/lib/goatsData";
 
-export const revalidate = 60;
+/** Always read fresh awards (avoid stale “No awards yet” after Admin saves). */
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "GOATs · Ballon d'Or & Palm d'Or",

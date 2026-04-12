@@ -394,6 +394,20 @@ export default async function TeamPage({
   seasonHistory.sort((a, b) => b.season.localeCompare(a.season));
 
   const currentSeason = await getCurrentSeasonLabel();
+
+  const playerIds = (players ?? []).map((p) => p.id);
+  const { data: squadStats } =
+    playerIds.length > 0 && currentSeason ?
+      await supabase
+        .from("stats")
+        .select("player_id, goals, saves")
+        .in("player_id", playerIds)
+        .eq("season", currentSeason)
+    : { data: [] as { player_id: string; goals: number | null; saves: number | null }[] };
+  const statsByPlayerId = new Map(
+    (squadStats ?? []).map((s) => [s.player_id, s]),
+  );
+
   const leagueDashUrl =
     currentSeason && league ?
       dashboardDomesticLeagueUrl(currentSeason, league.country)
@@ -737,27 +751,33 @@ export default async function TeamPage({
             <div>
               <h3 className="mb-2 text-sm font-bold text-slate-800">Strikers</h3>
               <ul className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
-                {strikers.map((p) => (
-                  <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                    <Link
-                      href={`/player/${p.id}`}
-                      className="flex min-w-0 items-center gap-2 font-bold text-slate-900 hover:text-emerald-700 hover:underline"
-                    >
-                      <PlayerAvatar name={p.name} profilePicUrl={p.profile_pic_url} />
-                      <span className="truncate">{p.name}</span>
-                    </Link>
-                    <span className="shrink-0 text-right text-sm text-slate-500">
-                      <SquadNationalityCell
-                        nationality={p.nationality}
-                        code={codeByNationality.get(p.nationality)}
-                        flag={flagByNationality.get(p.nationality) ?? null}
-                      />
-                      <span className="ml-2 font-mono text-slate-800">
-                        {formatMoneyPounds(Number(p.market_value))}
+                {strikers.map((p) => {
+                  const goals = statsByPlayerId.get(p.id)?.goals ?? 0;
+                  return (
+                    <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                      <Link
+                        href={`/player/${p.id}`}
+                        className="flex min-w-0 items-center gap-2 font-bold text-slate-900 hover:text-emerald-700 hover:underline"
+                      >
+                        <PlayerAvatar name={p.name} profilePicUrl={p.profile_pic_url} />
+                        <span className="truncate">{p.name}</span>
+                      </Link>
+                      <span className="flex shrink-0 items-center gap-3 text-right text-sm text-slate-500">
+                        <span className="inline-flex items-center gap-1 font-semibold text-slate-700" title="Goals this season">
+                          ⚽ {goals}
+                        </span>
+                        <SquadNationalityCell
+                          nationality={p.nationality}
+                          code={codeByNationality.get(p.nationality)}
+                          flag={flagByNationality.get(p.nationality) ?? null}
+                        />
+                        <span className="font-mono text-slate-800">
+                          {formatMoneyPounds(Number(p.market_value))}
+                        </span>
                       </span>
-                    </span>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}
@@ -765,27 +785,33 @@ export default async function TeamPage({
             <div>
               <h3 className="mb-2 text-sm font-bold text-slate-800">Goalkeepers</h3>
               <ul className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
-                {goalkeepers.map((p) => (
-                  <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                    <Link
-                      href={`/player/${p.id}`}
-                      className="flex min-w-0 items-center gap-2 font-bold text-slate-900 hover:text-emerald-700 hover:underline"
-                    >
-                      <PlayerAvatar name={p.name} profilePicUrl={p.profile_pic_url} />
-                      <span className="truncate">{p.name}</span>
-                    </Link>
-                    <span className="shrink-0 text-right text-sm text-slate-500">
-                      <SquadNationalityCell
-                        nationality={p.nationality}
-                        code={codeByNationality.get(p.nationality)}
-                        flag={flagByNationality.get(p.nationality) ?? null}
-                      />
-                      <span className="ml-2 font-mono text-slate-800">
-                        {formatMoneyPounds(Number(p.market_value))}
+                {goalkeepers.map((p) => {
+                  const saves = statsByPlayerId.get(p.id)?.saves ?? 0;
+                  return (
+                    <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                      <Link
+                        href={`/player/${p.id}`}
+                        className="flex min-w-0 items-center gap-2 font-bold text-slate-900 hover:text-emerald-700 hover:underline"
+                      >
+                        <PlayerAvatar name={p.name} profilePicUrl={p.profile_pic_url} />
+                        <span className="truncate">{p.name}</span>
+                      </Link>
+                      <span className="flex shrink-0 items-center gap-3 text-right text-sm text-slate-500">
+                        <span className="inline-flex items-center gap-1 font-semibold text-slate-700" title="Saves this season">
+                          🧤 {saves}
+                        </span>
+                        <SquadNationalityCell
+                          nationality={p.nationality}
+                          code={codeByNationality.get(p.nationality)}
+                          flag={flagByNationality.get(p.nationality) ?? null}
+                        />
+                        <span className="font-mono text-slate-800">
+                          {formatMoneyPounds(Number(p.market_value))}
+                        </span>
                       </span>
-                    </span>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}

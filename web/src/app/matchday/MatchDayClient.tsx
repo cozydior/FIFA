@@ -418,6 +418,26 @@ export default function MatchDayClient() {
         </p>
       </header>
 
+      {matchOver && (
+        <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-center text-sm font-semibold text-emerald-950">
+          {saving && <p>Saving stats & scores…</p>}
+          {persistOk && <p>Full time — saved to database.</p>}
+          {persistOk && savedMatchId && (
+            <p>
+              <Link
+                href={`/matches/${savedMatchId}`}
+                className="font-bold text-emerald-800 underline decoration-emerald-400 underline-offset-2 hover:text-emerald-950"
+              >
+                View saved match report →
+              </Link>
+            </p>
+          )}
+          {persistError && (
+            <p className="text-red-700">{persistError}</p>
+          )}
+        </div>
+      )}
+
       <div className="relative overflow-hidden rounded-2xl border-2 border-slate-300 bg-white shadow-lg ring-1 ring-slate-200/80 transition-shadow duration-500 hover:shadow-xl">
         <div className="bg-pitch-stripes border-b border-emerald-900/10 px-3 py-5 sm:px-8">
           <div className="flex items-start justify-between gap-3 sm:items-center sm:gap-6">
@@ -579,25 +599,6 @@ export default function MatchDayClient() {
         </ul>
       </section>
 
-      {matchOver && (
-        <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-center text-sm font-semibold text-emerald-950">
-          {saving && <p>Saving stats & scores…</p>}
-          {persistOk && <p>Full time — saved to database.</p>}
-          {persistOk && savedMatchId && (
-            <p>
-              <Link
-                href={`/matches/${savedMatchId}`}
-                className="font-bold text-emerald-800 underline decoration-emerald-400 underline-offset-2 hover:text-emerald-950"
-              >
-                View saved match report →
-              </Link>
-            </p>
-          )}
-          {persistError && (
-            <p className="text-red-700">{persistError}</p>
-          )}
-        </div>
-      )}
     </div>
   );
 }

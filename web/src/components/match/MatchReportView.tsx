@@ -9,6 +9,7 @@ import {
   type SetupPlayer,
 } from "@/components/match/MatchFeedCards";
 import type { ShotEvent } from "@/lib/simEngine";
+import { AetScoreLine } from "@/components/AetScoreLine";
 
 type Lineups = {
   home: {
@@ -105,11 +106,7 @@ export function MatchReportView({
                 <span className="text-2xl font-bold text-slate-400">:</span>
                 <span>{awayScore}</span>
               </div>
-              {scoreLine ?
-                <p className="mt-2 max-w-[16rem] text-center font-mono text-[0.7rem] font-semibold leading-snug text-slate-600 sm:max-w-none">
-                  {scoreLine}
-                </p>
-              : null}
+              <AetScoreLine line={scoreLine} className="justify-center" />
             </div>
             <div className="flex flex-1 flex-col items-center gap-2 text-center">
               <TeamLogo url={lineups.away.logoUrl} name={lineups.away.name} />

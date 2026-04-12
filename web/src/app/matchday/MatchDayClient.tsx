@@ -10,6 +10,7 @@ import {
   TeamLogo,
   type SetupPlayer,
 } from "@/components/match/MatchFeedCards";
+import { AetScoreLine } from "@/components/AetScoreLine";
 import {
   finalizeLiveMatch,
   initLiveMatch,
@@ -241,6 +242,8 @@ export default function MatchDayClient() {
               fotMob: p.fotMob,
               goals: p.goals ?? 0,
               saves: p.saves ?? 0,
+              shots: p.shots ?? 0,
+              shotsFaced: p.shotsFaced ?? 0,
             })),
             savedMatchSnapshot: isIntl ? undefined : savedMatchSnapshot,
           }),
@@ -470,10 +473,8 @@ export default function MatchDayClient() {
                 <span className="text-2xl font-bold text-slate-400">:</span>
                 <span className="transition-colors duration-300">{awayScore}</span>
               </div>
-              {matchOver && finalResult?.scoreBreakdown?.displayLine ?
-                <p className="mt-2 max-w-[18rem] text-center font-mono text-[0.7rem] font-semibold leading-snug text-slate-600 sm:max-w-none">
-                  {finalResult.scoreBreakdown.displayLine}
-                </p>
+              {matchOver ?
+                <AetScoreLine line={finalResult?.scoreBreakdown?.displayLine} className="justify-center" />
               : null}
             </div>
             <div className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center transition-transform duration-300">

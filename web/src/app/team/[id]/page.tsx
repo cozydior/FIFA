@@ -415,14 +415,11 @@ export default async function TeamPage({
   const leagueCountryCode =
     league ? codeByNationality.get(league.country) : undefined;
 
-  const formPool = (myFixtures ?? []).filter(
-    (f) =>
-      f.home_score != null &&
-      f.away_score != null &&
-      (currentSeason ? f.season_label === currentSeason : true),
-  );
-  formPool.sort((a, b) => b.week - a.week || b.season_label.localeCompare(a.season_label));
-  const formLast = formPool.slice(0, 5).reverse();
+  // Form based on saved sim matches (most recent first), avoids cup/week ordering issues
+  const formLast = [...(savedMatchRows ?? [])]
+    .filter((m) => m.home_score != null && m.away_score != null)
+    .slice(0, 5)
+    .reverse();
 
   const balance = Number(team.current_balance ?? 0);
 
@@ -844,12 +841,26 @@ export default async function TeamPage({
                 const sFor = isHome ? m.home_score : m.away_score;
                 const sAgainst = isHome ? m.away_score : m.home_score;
                 const selfLogo = team.logo_url;
+                const letter = resultLetter(
+                  id,
+                  m.home_team_id,
+                  m.away_team_id,
+                  Number(m.home_score),
+                  Number(m.away_score),
+                );
+                const badge =
+                  letter === "W" ? "bg-emerald-500 text-white"
+                  : letter === "L" ? "bg-red-500 text-white"
+                  : "bg-slate-400 text-white";
                 return (
                   <li key={m.id}>
                     <Link
                       href={`/matches/${m.id}`}
                       className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3 text-sm transition last:border-b-0 hover:bg-emerald-50/50"
                     >
+                      <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[0.65rem] font-black ${badge}`}>
+                        {letter}
+                      </span>
                       <span className="flex shrink-0 items-center gap-1.5">
                         {selfLogo ?
                           // eslint-disable-next-line @next/next/no-img-element

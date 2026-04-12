@@ -10,7 +10,8 @@ export type GoatWinner = {
   team: { id: string; name: string; logoUrl: string | null } | null;
   goals: number;
   saves: number;
-  appearances: number;
+  shotsTaken: number;
+  shotsFaced: number;
 };
 
 export type SeasonGoatPair = {
@@ -52,7 +53,7 @@ export async function fetchGoatHistory(): Promise<SeasonGoatPair[]> {
 
   const { data: statsRows } = await supabase
     .from("stats")
-    .select("player_id, season, goals, saves, appearances")
+    .select("player_id, season, goals, saves, shots_taken, shots_faced")
     .in("player_id", playerIds)
     .in("season", seasonLabels);
 
@@ -63,7 +64,8 @@ export async function fetchGoatHistory(): Promise<SeasonGoatPair[]> {
       {
         goals: Number(r.goals ?? 0),
         saves: Number(r.saves ?? 0),
-        appearances: Number(r.appearances ?? 0),
+        shotsTaken: Number(r.shots_taken ?? 0),
+        shotsFaced: Number(r.shots_faced ?? 0),
       },
     ]),
   );
@@ -88,7 +90,8 @@ export async function fetchGoatHistory(): Promise<SeasonGoatPair[]> {
         : null,
       goals: st?.goals ?? 0,
       saves: st?.saves ?? 0,
-      appearances: st?.appearances ?? 0,
+      shotsTaken: st?.shotsTaken ?? 0,
+      shotsFaced: st?.shotsFaced ?? 0,
     };
 
     if (!bySeason.has(a.season_label)) {

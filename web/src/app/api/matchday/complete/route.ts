@@ -12,6 +12,8 @@ type BodyPlayer = {
   fotMob: number;
   goals?: number;
   saves?: number;
+  shots?: number;
+  shotsFaced?: number;
 };
 
 type SavedMatchSnapshot = {
@@ -240,9 +242,12 @@ export async function POST(req: Request) {
       const matchSaves = typeof p.saves === "number" ? p.saves : 0;
       const fotMob = typeof p.fotMob === "number" ? p.fotMob : 0;
 
+      const matchShots = typeof p.shots === "number" ? p.shots : 0;
+      const matchShotsFaced = typeof p.shotsFaced === "number" ? p.shotsFaced : 0;
+
       const { data: existing, error: se } = await supabase
         .from("stats")
-        .select("goals, saves, appearances, average_rating")
+        .select("goals, saves, appearances, average_rating, shots_taken, shots_faced")
         .eq("player_id", p.id)
         .eq("season", season)
         .maybeSingle();
@@ -255,6 +260,8 @@ export async function POST(req: Request) {
       const newApps = prevApps + 1;
       const newGoals = prevGoals + matchGoals;
       const newSaves = prevSaves + matchSaves;
+      const newShotsTaken = (existing?.shots_taken ?? 0) + matchShots;
+      const newShotsFaced = (existing?.shots_faced ?? 0) + matchShotsFaced;
 
       let newAvg: number;
       if (prevApps <= 0 || existing?.average_rating == null) {
@@ -275,6 +282,8 @@ export async function POST(req: Request) {
           saves: newSaves,
           appearances: newApps,
           average_rating: newAvg,
+          shots_taken: newShotsTaken,
+          shots_faced: newShotsFaced,
         },
         { onConflict: "player_id,season" },
       );

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BracketColumnConnector } from "@/components/bracket/BracketColumnConnector";
+import { AetScoreLine } from "@/components/AetScoreLine";
 
 export type IntlKoFixture = {
   id: string;
@@ -94,14 +95,7 @@ function TieCard(props: { label: string; f: IntlKoFixture }) {
           : null}
         </div>
       </div>
-      {richLine ?
-        <p className="mt-1.5 font-mono text-[0.65rem] font-semibold leading-snug text-slate-700">{richLine}</p>
-      : null}
-      {tie && done && !richLine ?
-        <p className="mt-1.5 text-[0.65rem] text-amber-800">
-          Level — winner decided on penalties (tiebreak).
-        </p>
-      : null}
+      <AetScoreLine line={richLine} />
     </div>
   );
 }

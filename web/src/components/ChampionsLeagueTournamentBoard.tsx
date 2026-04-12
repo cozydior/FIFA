@@ -3,6 +3,7 @@ import { BracketColumnConnector } from "@/components/bracket/BracketColumnConnec
 import { computeStandings, type FixtureRow } from "@/lib/standings";
 import { formatFixtureCalendarLabel } from "@/lib/calendarPhases";
 import { internationalGroupStandingRowClass } from "@/lib/internationalStandingsUi";
+import { AetScoreLine } from "@/components/AetScoreLine";
 
 export type ClFxLite = {
   id: string;
@@ -142,11 +143,7 @@ function ClKoTieCard({
             <span className="shrink-0 font-mono text-lg font-black tabular-nums text-slate-800">{as}</span>
           : null}
         </div>
-        {done && typeof f.score_detail?.displayLine === "string" ?
-          <p className="font-mono text-[0.65rem] font-semibold leading-snug text-slate-600">
-            {f.score_detail.displayLine}
-          </p>
-        : null}
+        <AetScoreLine line={f.score_detail?.displayLine} />
       </div>
       {f.status === "scheduled" ?
         <Link

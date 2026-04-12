@@ -93,9 +93,20 @@ export default async function PlayerPage({
 
   const { data: statsRows } = await supabase
     .from("stats")
-    .select("season, goals, saves, appearances, average_rating")
+    .select("season, goals, saves, appearances, average_rating, shots_taken, shots_faced")
     .eq("player_id", id)
-    .order("season", { ascending: false });
+    .order("season", { ascending: false })
+    .then((res) => {
+      // If columns don't exist yet (migration not applied), fall back without them
+      if (res.error) {
+        return supabase
+          .from("stats")
+          .select("season, goals, saves, appearances, average_rating")
+          .eq("player_id", id)
+          .order("season", { ascending: false });
+      }
+      return res;
+    });
 
   const { data: intlRows } = await supabase
     .from("player_international_stats")
@@ -394,9 +405,13 @@ export default async function PlayerPage({
                 </div>
               )}
               <div className="flex items-center justify-between gap-4">
-                <dt className="text-sm font-medium text-emerald-900/90">Appearances</dt>
+                <dt className="text-sm font-medium text-emerald-900/90">
+                  {player.role === "GK" ? "Shots faced" : "Shots taken"}
+                </dt>
                 <dd className="font-mono text-2xl font-black text-emerald-950">
-                  {seasonRow?.appearances ?? 0}
+                  {player.role === "GK"
+                    ? (seasonRow?.shots_faced ?? 0)
+                    : (seasonRow?.shots_taken ?? 0)}
                 </dd>
               </div>
               {seasonRow?.average_rating != null && (
@@ -532,7 +547,7 @@ export default async function PlayerPage({
               <tr className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                 <th className="px-4 py-2">Season</th>
                 <th className="px-4 py-2">Club</th>
-                <th className="px-4 py-2 text-right">Apps</th>
+                <th className="px-4 py-2 text-right">{player.role === "GK" ? "Shots faced" : "Shots"}</th>
                 {player.role !== "GK" ?
                   <th className="px-4 py-2 text-right">Goals</th>
                 : null}
@@ -566,7 +581,9 @@ export default async function PlayerPage({
                       </Link>
                     : <span className="text-slate-400">—</span>}
                   </td>
-                  <td className="px-4 py-2 text-right font-mono">{r.appearances ?? 0}</td>
+                  <td className="px-4 py-2 text-right font-mono">
+                    {player.role === "GK" ? (r.shots_faced ?? 0) : (r.shots_taken ?? 0)}
+                  </td>
                   {player.role !== "GK" ?
                     <td className="px-4 py-2 text-right font-mono">{r.goals ?? 0}</td>
                   : null}

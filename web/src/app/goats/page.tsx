@@ -33,8 +33,8 @@ function StatLine({ w }: { w: GoatWinner }) {
         <span className="text-stone-500">{primaryLabel}</span>
       </span>
       <span>
-        <span className="font-semibold text-stone-200">{w.appearances}</span>{" "}
-        <span className="text-stone-500">appearances</span>
+        <span className="font-semibold text-stone-200">{isSt ? w.shotsTaken : w.shotsFaced}</span>{" "}
+        <span className="text-stone-500">{isSt ? "shots" : "shots faced"}</span>
       </span>
     </p>
   );

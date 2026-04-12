@@ -268,13 +268,13 @@ export default async function DashboardPage({
       await supabase
         .from("fixtures")
         .select(
-          "id, week, cup_round, status, home_score, away_score, home_team_id, away_team_id, country",
+          "id, week, cup_round, status, home_score, away_score, home_team_id, away_team_id, country, score_detail",
         )
         .eq("season_label", selectedSeason)
         .eq("competition", "regional_cup")
         .eq("country", domesticCountryName)
         .order("week")
-    : { data: [] as { id: string; week: number; cup_round: string | null; status: string; home_score: number | null; away_score: number | null; home_team_id: string; away_team_id: string; country: string | null }[] };
+    : { data: [] as { id: string; week: number; cup_round: string | null; status: string; home_score: number | null; away_score: number | null; home_team_id: string; away_team_id: string; country: string | null; score_detail: { displayLine?: string } | null }[] };
 
   const cupTeamIds = [
     ...new Set(
@@ -1034,7 +1034,13 @@ export default async function DashboardPage({
                             </p>
                           : (
                             <RegionalCupBracket
-                              fixtures={regionalCupRaw ?? []}
+                              fixtures={(regionalCupRaw ?? []).map((f) => ({
+                                ...f,
+                                scoreDisplay:
+                                  typeof (f.score_detail as { displayLine?: string } | null)?.displayLine === "string"
+                                    ? (f.score_detail as { displayLine: string }).displayLine
+                                    : null,
+                              }))}
                               teamName={regionalTeamName}
                               teamLogo={regionalTeamLogo}
                             />

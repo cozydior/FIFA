@@ -199,7 +199,7 @@ export async function getDashboardSummary(seasonOverride?: string) {
       // D1 England=0, D1 Spain=1, D1 France=2, D2 England=4, D2 Spain=5, D2 France=6
       return cp + dp * 4;
     }
-    if (c.competition === "regional_cup") return 20;
+    if (c.competition === "regional_cup") return 20 + (COUNTRY_PRIORITY[c.leagueCountry] ?? 3);
     if (c.competition === "champions_league") return 30;
     return 40;
   }

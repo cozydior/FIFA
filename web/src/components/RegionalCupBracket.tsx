@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BracketColumnConnector } from "@/components/bracket/BracketColumnConnector";
+import { AetScoreLine } from "@/components/AetScoreLine";
 
 export type RegionalCupFx = {
   id: string;
@@ -10,6 +11,8 @@ export type RegionalCupFx = {
   away_score: number | null;
   home_team_id: string;
   away_team_id: string;
+  /** Rich score line from knockout sim (e.g. `1-1 AET (2-1)`) */
+  scoreDisplay?: string | null;
 };
 
 const ROUND_ORDER: Record<string, number> = {
@@ -44,6 +47,7 @@ function TieCard(props: {
   const as = f.away_score ?? 0;
   const hWin = done && hs > as;
   const aWin = done && as > hs;
+  const richLine = f.scoreDisplay?.trim();
 
   return (
     <div className="rounded-lg border border-slate-200/90 bg-white px-3 py-2.5 shadow-sm">
@@ -98,6 +102,7 @@ function TieCard(props: {
           : null}
         </div>
       </div>
+      <AetScoreLine line={richLine} />
       {f.status === "scheduled" ?
         <Link
           href={`/matchday?homeTeamId=${f.home_team_id}&awayTeamId=${f.away_team_id}&fixtureId=${f.id}`}

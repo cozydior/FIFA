@@ -15,6 +15,7 @@ import {
   Medal,
   Shield,
   Plus,
+  RotateCcw,
   Trash2,
   Trophy,
   UserMinus,
@@ -25,6 +26,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { EndOfSeasonChecklistSection } from "@/components/admin/EndOfSeasonChecklistSection";
 import { parseTrophyList, type TrophyCabinetEntry } from "@/lib/trophyCabinet";
 
 type League = {
@@ -160,7 +162,7 @@ function AdminGuideSection() {
         <div>
           <h3 className="font-bold text-zinc-900">3. How players are paid (wages)</h3>
           <p className="mt-2">
-            There are no per-match salary line items. Once per season, <strong>Apply wages</strong> charges each club{" "}
+            There are no per-match salary line items. Once per season, <strong>Pay season wages</strong> (End of season checklist) charges each club{" "}
             <strong>50% of its squad&apos;s total market value</strong> (contract cost). That debit is one team transaction. On player profiles,{" "}
             <strong>Career salary earned</strong> increases each time wages run: each player on the roster is credited{" "}
             <strong>50% of their own MV at that moment</strong> (those shares add up to the same team wage bill). Run Apply wages after you&apos;re done with a season&apos;s
@@ -171,8 +173,8 @@ function AdminGuideSection() {
         <div>
           <h3 className="font-bold text-zinc-900">4. Champions League</h3>
           <p className="mt-2">
-            <strong>Season end</strong> (domestic) reads completed league fixtures, applies promotion/relegation, and seeds{" "}
-            <code className="font-mono text-xs">tournament_entries</code> for the Champions League tournament row for that season.{" "}
+            <strong>Promotion &amp; relegation</strong> (End of season checklist) reads completed league fixtures and updates divisions. Champions League{" "}
+            <code className="font-mono text-xs">tournament_entries</code> seeding is optional when you close a season.{" "}
             <strong>CL payout</strong> lets you pay prize money to clubs (winner, runner-up, etc.) via team transactions. Scheduled CL knockout matches may be exposed under
             the universe/champions-league API depending on your setup; the <strong>Dashboard → Champions League</strong> view lists qualified teams.
           </p>
@@ -385,11 +387,10 @@ export default function AdminPage() {
         {panel === "season" && (
           <>
             <SeasonMakerSection />
+            <EndOfSeasonChecklistSection />
             <SimPreviewToggleSection />
             <TournamentsModeToggleSection />
             <InternationalTournamentAdminSection />
-            <EndOfSeasonBundleSection />
-            <SetMarketValuesSection />
             <SeasonAwardsSection players={players} seasons={seasons} />
           </>
         )}
@@ -410,6 +411,7 @@ export default function AdminPage() {
         {panel === "finance" && (
           <>
             <TransferMarketSection teams={teams} onSuccess={refreshLists} />
+            <ResetPeakMarketValueSection onSuccess={refreshLists} />
             <ReleasePlayerSection players={players} onSuccess={refreshLists} />
             <FreeAgencyPickupSection players={players} teams={teams} onSuccess={refreshLists} />
             <ResetSimulationSection onSuccess={refreshLists} />
@@ -1854,6 +1856,54 @@ function ApplyWagesSection() {
   );
 }
 
+function ResetPeakMarketValueSection({
+  onSuccess,
+}: {
+  onSuccess: () => void | Promise<void>;
+}) {
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function run() {
+    setPending(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/admin/reset-peak-market-values", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      setMessage(`Reset peak MV for ${data.updated} players (peak = current £).`);
+      await onSuccess();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-4 shadow-sm">
+      <div className="mb-2 flex items-center gap-2 text-zinc-900">
+        <RotateCcw className="h-4 w-4 text-zinc-600" aria-hidden />
+        <h3 className="text-sm font-semibold">Peak market value</h3>
+      </div>
+      <p className="mb-3 text-xs text-zinc-600">
+        Sets every player&apos;s career peak MV to their <strong>current</strong> MV. Use after
+        bad test data so rankings and profiles show a sensible peak from here on.
+      </p>
+      <button
+        type="button"
+        onClick={() => void run()}
+        disabled={pending}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+      >
+        {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+        Reset all peaks to current MV
+      </button>
+      {message && <p className="mt-2 text-xs text-zinc-700">{message}</p>}
+    </section>
+  );
+}
+
 const RESET_SIM_CONFIRM = "RESET_ALL_SIMULATION_DATA";
 
 function ResetSimulationSection({
@@ -2160,93 +2210,6 @@ function SeasonAwardsSection({
       >
         {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
         Save awards
-      </button>
-      {message && (
-        <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-700">{message}</p>
-      )}
-    </section>
-  );
-}
-
-function SeasonEndSection() {
-  const [pending, setPending] = useState(false);
-  const [seasonLabel, setSeasonLabel] = useState("");
-  const [skipPayouts, setSkipPayouts] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-
-  async function run() {
-    setPending(true);
-    setMessage(null);
-    try {
-      const res = await fetch("/api/admin/season-end", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...(seasonLabel.trim() ? { seasonLabel: seasonLabel.trim() } : {}),
-          skipLeaguePayouts: skipPayouts,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed");
-      const lp = data.leaguePayouts;
-      const payoutLine =
-        lp?.applied === false && lp?.notes?.[0]
-          ? ` Payouts: ${lp.notes[0]}`
-          : lp?.applied
-            ? ` League prizes applied (${lp.notes?.length ?? 0} note(s)).`
-            : "";
-      setMessage(
-        `Season end OK — CL qualifiers: ${data.championsLeagueQualifiers}, ` +
-          `league moves: ${data.teamLeagueUpdates}.${payoutLine}`,
-      );
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Error");
-    } finally {
-      setPending(false);
-    }
-  }
-
-  return (
-    <section className="rounded-2xl border border-slate-300/90 bg-white p-6 shadow-sm">
-      <div className="mb-4 flex items-center gap-2 text-zinc-900">
-        <Trophy className="h-5 w-5 text-sky-600" />
-        <h2 className="text-lg font-semibold">Season end (promotion + CL)</h2>
-      </div>
-      <p className="mb-4 text-sm text-zinc-600">
-        Rebuilds tables from completed league fixtures, swaps 4th D1 ↔ 1st D2
-        per country, seeds Champions League entries, and credits league title /
-        placement / promotion prizes unless skipped.
-      </p>
-      <div className="mb-4 flex flex-col gap-3">
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-zinc-700">
-            Season label (optional)
-          </span>
-          <input
-            value={seasonLabel}
-            onChange={(e) => setSeasonLabel(e.target.value)}
-            placeholder="Uses current season setting if empty"
-            className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900"
-          />
-        </label>
-        <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-700">
-          <input
-            type="checkbox"
-            checked={skipPayouts}
-            onChange={(e) => setSkipPayouts(e.target.checked)}
-            className="rounded border-zinc-300"
-          />
-          Skip league &amp; promotion prize money (only moves + CL seeds)
-        </label>
-      </div>
-      <button
-        type="button"
-        onClick={() => void run()}
-        disabled={pending}
-        className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-50"
-      >
-        {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-        Run season end
       </button>
       {message && (
         <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-700">{message}</p>
@@ -2639,188 +2602,6 @@ function TransferMarketSection({
           Complete transfer
         </button>
       </form>
-    </section>
-  );
-}
-
-function EndOfSeasonBundleSection() {
-  const [pending, setPending] = useState(false);
-  const [seasonLabel, setSeasonLabel] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
-  const [skipSeasonEnd, setSkipSeasonEnd] = useState(false);
-  const [skipCupPayouts, setSkipCupPayouts] = useState(false);
-  const [skipClPayouts, setSkipClPayouts] = useState(false);
-  const [skipWages, setSkipWages] = useState(false);
-  const [skipMarketValues, setSkipMarketValues] = useState(false);
-
-  async function run() {
-    setPending(true);
-    setMessage(null);
-    try {
-      const res = await fetch("/api/admin/end-of-season-bundle", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...(seasonLabel.trim() ? { seasonLabel: seasonLabel.trim() } : {}),
-          skipSeasonEnd,
-          skipCupPayouts,
-          skipClPayouts,
-          skipWages,
-          skipMarketValues,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed");
-      const parts: string[] = [`Season: ${data.seasonLabel}`];
-      if (data.seasonEnd) {
-        parts.push(
-          `Promotion/CL: ${data.seasonEnd.teamLeagueUpdates} moves, ${data.seasonEnd.championsLeagueQualifiers} CL qualifiers`,
-        );
-        if (data.seasonEnd.leaguePayouts?.applied) parts.push("League prizes paid.");
-      }
-      if (data.regionalCupPayouts) {
-        const paid = (data.regionalCupPayouts as { paid: boolean }[]).filter((r) => r.paid).length;
-        parts.push(`Regional cup finals: ${paid} paid.`);
-      }
-      if (data.championsLeaguePayouts) {
-        const cl = data.championsLeaguePayouts as { applied?: boolean; skipped?: string; notes?: string[] };
-        parts.push(cl.skipped ?? (cl.applied ? `CL prizes paid (${cl.notes?.length ?? 0} entries).` : "CL already paid."));
-      }
-      if (data.wages) parts.push(`Wages charged for ${(data.wages as { teams: number }).teams} clubs.`);
-      if (data.marketValues) parts.push(`Market values set for ${(data.marketValues as { updated: number }).updated} players.`);
-      setMessage(parts.join(" · "));
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Error");
-    } finally {
-      setPending(false);
-    }
-  }
-
-  return (
-    <section className="rounded-2xl border border-sky-200 bg-sky-50/40 p-6 shadow-sm">
-      <div className="mb-2 flex items-center gap-2 text-zinc-900">
-        <Trophy className="h-5 w-5 text-sky-600" />
-        <h2 className="text-lg font-semibold">End of season</h2>
-        <span className="ml-1 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-700">All-in-one</span>
-      </div>
-      <p className="mb-4 text-sm text-zinc-600">
-        Runs everything in order: promotion/relegation + league prizes, regional cup finals payouts, CL prizes
-        (auto-detected from completed CL_F fixture), season wages, then recalculates all market values from hidden OVR.
-        Each step is idempotent — safe to re-run.
-      </p>
-      <div className="mb-4 flex flex-col gap-3">
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-zinc-700">Season label (optional — uses current season if blank)</span>
-          <input
-            value={seasonLabel}
-            onChange={(e) => setSeasonLabel(e.target.value)}
-            placeholder="e.g. Season 1"
-            className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900"
-          />
-        </label>
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="flex items-center gap-1 self-start text-sm text-zinc-500 hover:text-zinc-700"
-        >
-          <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} />
-          Advanced (skip steps)
-        </button>
-        {expanded && (
-          <div className="flex flex-col gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
-            {(
-              [
-                ["skipSeasonEnd", "Skip promotion/relegation & league prizes", skipSeasonEnd, setSkipSeasonEnd],
-                ["skipCupPayouts", "Skip regional cup final payouts", skipCupPayouts, setSkipCupPayouts],
-                ["skipClPayouts", "Skip Champions League prize money", skipClPayouts, setSkipClPayouts],
-                ["skipWages", "Skip season wages", skipWages, setSkipWages],
-                ["skipMarketValues", "Skip market value recalculation", skipMarketValues, setSkipMarketValues],
-              ] as [string, string, boolean, (v: boolean) => void][]
-            ).map(([key, label, val, setter]) => (
-              <label key={key} className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={val}
-                  onChange={(e) => setter(e.target.checked)}
-                  className="rounded border-zinc-300"
-                />
-                {label}
-              </label>
-            ))}
-          </div>
-        )}
-      </div>
-      <button
-        type="button"
-        onClick={() => void run()}
-        disabled={pending}
-        className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
-      >
-        {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trophy className="h-4 w-4" />}
-        Run end of season
-      </button>
-      {message && (
-        <p className="mt-3 whitespace-pre-wrap text-sm text-zinc-700">{message}</p>
-      )}
-    </section>
-  );
-}
-
-function SetMarketValuesSection() {
-  const [pending, setPending] = useState(false);
-  const [seasonLabel, setSeasonLabel] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
-
-  async function run() {
-    setPending(true);
-    setMessage(null);
-    try {
-      const res = await fetch("/api/admin/set-market-values", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(seasonLabel.trim() ? { seasonLabel: seasonLabel.trim() } : {}),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed");
-      setMessage(`Set MV for ${data.updated} players from hidden OVR (season snapshot: ${data.seasonLabel}).`);
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Error");
-    } finally {
-      setPending(false);
-    }
-  }
-
-  return (
-    <section className="rounded-2xl border border-slate-300/90 bg-white p-6 shadow-sm">
-      <div className="mb-2 flex items-center gap-2 text-zinc-900">
-        <Wallet className="h-5 w-5 text-emerald-600" />
-        <h2 className="text-lg font-semibold">Set market values</h2>
-      </div>
-      <p className="mb-4 text-sm text-zinc-600">
-        Derives every player&apos;s market value from their hidden OVR using the fixed formula
-        (65 OVR ≈ £3M · 75 OVR ≈ £13M · 85 OVR ≈ £41M · 95 OVR ≈ £100M).
-        Snapshots to MV history. Also included in the End of Season bundle above.
-      </p>
-      <label className="mb-3 flex flex-col gap-1 text-sm">
-        <span className="font-medium text-zinc-700">Season label (optional)</span>
-        <input
-          value={seasonLabel}
-          onChange={(e) => setSeasonLabel(e.target.value)}
-          placeholder="Uses current season if blank"
-          className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900"
-        />
-      </label>
-      <button
-        type="button"
-        onClick={() => void run()}
-        disabled={pending}
-        className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50"
-      >
-        {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-        Set market values from OVR
-      </button>
-      {message && <p className="mt-3 text-sm text-zinc-700">{message}</p>}
     </section>
   );
 }

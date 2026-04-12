@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { CompetitionBrandLogo } from "@/components/CompetitionBrandLogo";
+import { AetScoreLine } from "@/components/AetScoreLine";
 import { fetchNationalTournamentHistory } from "@/lib/nationalTournamentHistory";
 import { formatMoneyPounds } from "@/lib/formatMoney";
 import {
@@ -196,6 +197,7 @@ export default async function CountryPage({
     season_label: string;
     competitionSlug: string;
     competitionName: string;
+    aetDisplayLine: string | null;
   };
   let intlFormLast: IntlFormRow[] = [];
   let intlSimMatchHistory: IntlSimRow[] = [];
@@ -205,7 +207,7 @@ export default async function CountryPage({
     const { data: ifx } = await supabase
       .from("international_fixtures")
       .select(
-        "id, week, stage, group_name, home_score, away_score, home_national_team_id, away_national_team_id, competition_id",
+        "id, week, stage, group_name, home_score, away_score, home_national_team_id, away_national_team_id, competition_id, score_detail",
       )
       .or(`home_national_team_id.eq.${nt.id},away_national_team_id.eq.${nt.id}`)
       .eq("status", "completed");
@@ -229,6 +231,9 @@ export default async function CountryPage({
       .filter((f) => f.home_score != null && f.away_score != null)
       .map((f) => {
         const meta = compById.get(f.competition_id);
+        const detail = f.score_detail as { displayLine?: string } | null | undefined;
+        const aetDisplayLine =
+          typeof detail?.displayLine === "string" ? detail.displayLine : null;
         return {
           id: f.id as string,
           week: Number(f.week),
@@ -241,6 +246,7 @@ export default async function CountryPage({
           season_label: meta?.season_label ?? "",
           competitionSlug: meta?.slug ?? "",
           competitionName: meta?.name ?? "International",
+          aetDisplayLine,
         };
       })
       .sort((a, b) => {
@@ -641,8 +647,11 @@ export default async function CountryPage({
                         <span className="min-w-0 flex-1 font-semibold text-slate-900">
                           {isHome ? "vs" : "@"} {oppName}
                         </span>
-                        <span className="shrink-0 font-mono font-bold tabular-nums text-slate-800">
-                          {sFor}–{sAgainst}
+                        <span className="flex shrink-0 flex-col items-end gap-0">
+                          <span className="font-mono font-bold tabular-nums text-slate-800">
+                            {sFor}–{sAgainst}
+                          </span>
+                          <AetScoreLine line={m.aetDisplayLine} className="mt-0 justify-end" />
                         </span>
                         <span className="shrink-0 text-xs text-slate-500">{m.season_label}</span>
                       </div>

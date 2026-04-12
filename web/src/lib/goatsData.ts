@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { countryCodeToFlagEmoji, countryNameToFlagEmoji } from "@/lib/flags";
 
 export type GoatWinner = {
   seasonLabel: string;
@@ -7,6 +8,8 @@ export type GoatWinner = {
   playerName: string;
   role: string;
   profilePicUrl: string | null;
+  /** Flag emoji from `countries` (or fallback) for `players.nationality`. */
+  nationalityFlagEmoji: string | null;
   team: { id: string; name: string; logoUrl: string | null } | null;
   goals: number;
   saves: number;
@@ -24,6 +27,7 @@ type PlayerEmbed = {
   id: string;
   name: string;
   role: string;
+  nationality: string;
   profile_pic_url: string | null;
   team_id: string | null;
   teams:
@@ -34,6 +38,7 @@ type PlayerEmbed = {
 
 /**
  * Ballon d'Or (ST) & Palm d'Or (GK) winners by season, with that season's stats
+ * (league `stats` + summed `player_international_stats` across competitions)
  * and the player's current club (DB has no historical club snapshot per award).
  */
 export async function fetchGoatHistory(): Promise<SeasonGoatPair[]> {
@@ -49,7 +54,7 @@ export async function fetchGoatHistory(): Promise<SeasonGoatPair[]> {
   const playerIds = [...new Set(awards.map((a) => a.player_id))];
   const seasonLabels = [...new Set(awards.map((a) => a.season_label))];
 
-  const [{ data: statsRows }, { data: playerRows }] = await Promise.all([
+  const [{ data: statsRows }, { data: playerRows }, intlBundle] = await Promise.all([
     supabase
       .from("stats")
       .select("player_id, season, goals, saves, shots_taken, shots_faced")
@@ -57,9 +62,34 @@ export async function fetchGoatHistory(): Promise<SeasonGoatPair[]> {
       .in("season", seasonLabels),
     supabase
       .from("players")
-      .select("id, name, role, profile_pic_url, team_id, teams(id, name, logo_url)")
+      .select("id, name, role, nationality, profile_pic_url, team_id, teams(id, name, logo_url)")
       .in("id", playerIds),
+    supabase
+      .from("player_international_stats")
+      .select(
+        "player_id, season_label, goals_for_country, saves_for_country, shots_taken, shots_faced",
+      )
+      .in("player_id", playerIds)
+      .in("season_label", seasonLabels),
   ]);
+
+  type IntlAgg = {
+    player_id: string;
+    season_label: string;
+    goals_for_country?: number | null;
+    saves_for_country?: number | null;
+    shots_taken?: number | null;
+    shots_faced?: number | null;
+  };
+  let intlRows: IntlAgg[] = intlBundle.error ? [] : ((intlBundle.data ?? []) as IntlAgg[]);
+  if (intlBundle.error) {
+    const fb = await supabase
+      .from("player_international_stats")
+      .select("player_id, season_label, goals_for_country, saves_for_country")
+      .in("player_id", playerIds)
+      .in("season_label", seasonLabels);
+    intlRows = fb.error ? [] : ((fb.data ?? []) as IntlAgg[]);
+  }
 
   const statKey = (pid: string, s: string) => `${pid}::${s}`;
   const statMap = new Map(
@@ -74,6 +104,55 @@ export async function fetchGoatHistory(): Promise<SeasonGoatPair[]> {
     ]),
   );
 
+  /** Sum international rows per player/season (NL + GC + WC, etc.). */
+  const intlSumByKey = new Map<
+    string,
+    { goals: number; saves: number; shotsTaken: number; shotsFaced: number }
+  >();
+  for (const r of intlRows ?? []) {
+    const row = r as {
+      player_id: string;
+      season_label: string;
+      goals_for_country?: number | null;
+      saves_for_country?: number | null;
+      shots_taken?: number | null;
+      shots_faced?: number | null;
+    };
+    const k = statKey(row.player_id, row.season_label);
+    const cur = intlSumByKey.get(k) ?? {
+      goals: 0,
+      saves: 0,
+      shotsTaken: 0,
+      shotsFaced: 0,
+    };
+    cur.goals += Number(row.goals_for_country ?? 0);
+    cur.saves += Number(row.saves_for_country ?? 0);
+    cur.shotsTaken += Number(row.shots_taken ?? 0);
+    cur.shotsFaced += Number(row.shots_faced ?? 0);
+    intlSumByKey.set(k, cur);
+  }
+
+  const { data: countryRows } = await supabase
+    .from("countries")
+    .select("name, flag_emoji, code");
+
+  const flagByNationalityLower = new Map<string, string>();
+  for (const c of countryRows ?? []) {
+    const raw = c.flag_emoji?.trim();
+    const emoji =
+      raw && raw !== "" ? raw : countryCodeToFlagEmoji(c.code);
+    flagByNationalityLower.set((c.name ?? "").toLowerCase(), emoji);
+  }
+
+  function nationalityFlagEmoji(nat: string | null | undefined): string | null {
+    const n = (nat ?? "").trim();
+    if (!n) return null;
+    const fromTable = flagByNationalityLower.get(n.toLowerCase());
+    if (fromTable) return fromTable;
+    const fb = countryNameToFlagEmoji(n);
+    return fb === "🏳️" ? null : fb;
+  }
+
   const playerById = new Map(
     (playerRows ?? []).map((p) => [p.id, p as PlayerEmbed]),
   );
@@ -85,7 +164,9 @@ export async function fetchGoatHistory(): Promise<SeasonGoatPair[]> {
     if (!p?.id) continue;
     const rawTeam = p.teams;
     const t = Array.isArray(rawTeam) ? rawTeam[0] ?? null : rawTeam;
-    const st = statMap.get(statKey(a.player_id, a.season_label));
+    const k = statKey(a.player_id, a.season_label);
+    const st = statMap.get(k);
+    const ig = intlSumByKey.get(k);
     const winner: GoatWinner = {
       seasonLabel: a.season_label,
       awardType: a.award_type as "ballon_dor" | "palm_dor",
@@ -93,13 +174,14 @@ export async function fetchGoatHistory(): Promise<SeasonGoatPair[]> {
       playerName: p.name,
       role: p.role,
       profilePicUrl: p.profile_pic_url ?? null,
+      nationalityFlagEmoji: nationalityFlagEmoji(p.nationality),
       team: t
         ? { id: t.id, name: t.name, logoUrl: t.logo_url ?? null }
         : null,
-      goals: st?.goals ?? 0,
-      saves: st?.saves ?? 0,
-      shotsTaken: st?.shotsTaken ?? 0,
-      shotsFaced: st?.shotsFaced ?? 0,
+      goals: (st?.goals ?? 0) + (ig?.goals ?? 0),
+      saves: (st?.saves ?? 0) + (ig?.saves ?? 0),
+      shotsTaken: (st?.shotsTaken ?? 0) + (ig?.shotsTaken ?? 0),
+      shotsFaced: (st?.shotsFaced ?? 0) + (ig?.shotsFaced ?? 0),
     };
 
     if (!bySeason.has(a.season_label)) {
@@ -123,6 +205,7 @@ export type GoatTallyRow = {
   playerId: string;
   playerName: string;
   profilePicUrl: string | null;
+  nationalityFlagEmoji?: string | null;
   wins: number;
 };
 
@@ -145,6 +228,7 @@ export function buildGoatTallies(rows: SeasonGoatPair[]): {
           playerId: w.playerId,
           playerName: w.playerName,
           profilePicUrl: w.profilePicUrl,
+          nationalityFlagEmoji: w.nationalityFlagEmoji,
           wins: 1,
         });
       } else {
@@ -159,6 +243,7 @@ export function buildGoatTallies(rows: SeasonGoatPair[]): {
           playerId: w.playerId,
           playerName: w.playerName,
           profilePicUrl: w.profilePicUrl,
+          nationalityFlagEmoji: w.nationalityFlagEmoji,
           wins: 1,
         });
       } else {

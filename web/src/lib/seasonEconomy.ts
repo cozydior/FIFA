@@ -1,12 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { PAYOUTS_GBP, marketValueFromHiddenOvr } from "@/lib/economy";
 import { recordTeamTransaction } from "@/lib/economyServer";
-import { computeStandings, type FixtureRow } from "@/lib/standings";
-import type {
-  LeagueMeta,
-  LeagueStandingRow,
-  SeasonEndResult,
-} from "@/lib/seasonStructure";
+import {
+  computeStandings,
+  filterGhostZeroStandings,
+  unionRosterAndFixtureTeamIds,
+  type FixtureRow,
+} from "@/lib/standings";
+import type { LeagueMeta, LeagueStandingRow } from "@/lib/seasonStructure";
 
 const PG_UNIQUE = "23505";
 
@@ -49,8 +50,7 @@ export async function fetchLeagueStandingsForSeasonEnd(
       .select("id")
       .eq("league_id", L.id);
     if (te) throw new Error(te.message);
-    const teamIds = (teams ?? []).map((t) => t.id);
-    if (teamIds.length === 0) continue;
+    const rosterTeamIds = (teams ?? []).map((t) => t.id);
 
     const { data: fixtures, error: fe } = await supabase
       .from("fixtures")
@@ -62,7 +62,10 @@ export async function fetchLeagueStandingsForSeasonEnd(
       .eq("league_id", L.id);
     if (fe) throw new Error(fe.message);
 
-    const rows = computeStandings(teamIds, (fixtures ?? []) as FixtureRow[]);
+    const fx = (fixtures ?? []) as FixtureRow[];
+    const teamIds = unionRosterAndFixtureTeamIds(rosterTeamIds, fx);
+    if (teamIds.length === 0) continue;
+    const rows = filterGhostZeroStandings(computeStandings(teamIds, fx));
     rows.forEach((row, idx) => {
       standings.push({
         teamId: row.teamId,
@@ -104,14 +107,15 @@ export async function fetchClubSeasonSavesByTeamIds(
 }
 
 /**
- * League table prizes + promotion bonus. Idempotent per season via season_economy_events.
+ * League table prizes from final standings only (title, D1 placements, D2 placements).
+ * D2 1st receives the former “promotion” pool as part of their 1st-place league prize — not tied to
+ * running promotion/relegation. Idempotent per season via season_economy_events.
  */
 export async function applySeasonLeaguePayouts(
   supabase: SupabaseClient,
   seasonLabel: string,
   standings: LeagueStandingRow[],
   leagueMeta: LeagueMeta[],
-  seasonEnd: SeasonEndResult,
 ): Promise<{ applied: boolean; notes: string[] }> {
   const claimed = await tryClaimSeasonEconomyEvent(
     supabase,
@@ -159,29 +163,26 @@ export async function applySeasonLeaguePayouts(
     } else if (m.division === "D2") {
       for (const s of table) {
         if (s.position >= 1 && s.position <= 4) {
+          const amount =
+            s.position === 1 ? d2Placement + promotion : d2Placement;
           await recordTeamTransaction(supabase, {
             teamId: s.teamId,
             seasonLabel,
-            amount: d2Placement,
+            amount,
             category: "league",
-            note: `${m.country} D2 — ${ordinalPlace(s.position)} place`,
+            note:
+              s.position === 1 ?
+                `${m.country} D2 — 1st place (league prize pool)`
+              : `${m.country} D2 — ${ordinalPlace(s.position)} place`,
           });
+          if (s.position === 1) {
+            notes.push(
+              `D2 1st: team ${s.teamId.slice(0, 8)}… +£${amount} (includes top-half D2 prize)`,
+            );
+          }
         }
       }
     }
-  }
-
-  for (const rp of seasonEnd.relegationPromotion) {
-    await recordTeamTransaction(supabase, {
-      teamId: rp.promotedFromD2TeamId,
-      seasonLabel,
-      amount: promotion,
-      category: "promotion",
-      note: `${rp.country} — Promotion to D1 (${seasonLabel})`,
-    });
-    notes.push(
-      `Promotion bonus: team ${rp.promotedFromD2TeamId.slice(0, 8)}… +£${promotion}`,
-    );
   }
 
   // Team success tax on player market values
@@ -191,8 +192,11 @@ export async function applySeasonLeaguePayouts(
   for (const tid of championTeamIds) {
     await applyTeamSuccessTax(supabase, tid, 0.05);
   }
-  for (const rp of seasonEnd.relegationPromotion) {
-    await applyTeamSuccessTax(supabase, rp.promotedFromD2TeamId, 0.03);
+  const d2FirstTeamIds = standings
+    .filter((s) => s.division === "D2" && s.position === 1)
+    .map((s) => s.teamId);
+  for (const tid of d2FirstTeamIds) {
+    await applyTeamSuccessTax(supabase, tid, 0.03);
   }
 
   const orphan = standings.filter((s) => !metaIds.has(s.leagueId));

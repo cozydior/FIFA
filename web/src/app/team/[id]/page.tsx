@@ -2,7 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { computeStandings, type FixtureRow } from "@/lib/standings";
+import {
+  computeStandings,
+  filterGhostZeroStandings,
+  unionRosterAndFixtureTeamIds,
+  type FixtureRow,
+} from "@/lib/standings";
 
 type LeagueFixture = FixtureRow & { season_label: string; league_id: string | null };
 import {
@@ -37,6 +42,7 @@ import {
   savedSimFixtureDetailLine,
 } from "@/lib/matchCompetitionDisplay";
 import { CompetitionBrandLogo } from "@/components/CompetitionBrandLogo";
+import { AetScoreLine } from "@/components/AetScoreLine";
 import {
   parseBuyerClubNameFromSaleNote,
   parsePlayerNameFromTransferNote,
@@ -191,7 +197,7 @@ export default async function TeamPage({
   const savedRes = await supabase
     .from("saved_sim_matches")
     .select(
-      "id, home_score, away_score, season_label, created_at, home_team_id, away_team_id, fixture_id",
+      "id, home_score, away_score, season_label, created_at, home_team_id, away_team_id, fixture_id, score_breakdown",
     )
     .or(`home_team_id.eq.${id},away_team_id.eq.${id}`)
     .order("created_at", { ascending: false })
@@ -426,12 +432,14 @@ export default async function TeamPage({
   }
 
   for (const { season, leagueId } of pairKeys.values()) {
-    const teamIds = teamsByLeague.get(leagueId) ?? [];
+    const rosterIds = teamsByLeague.get(leagueId) ?? [];
     const fx = (leagueFixturesAll ?? []).filter(
       (f) => f.season_label === season && f.league_id === leagueId,
     ) as LeagueFixture[];
-    if (teamIds.length === 0 || fx.length === 0) continue;
-    const st = computeStandings(teamIds, fx, { mode: "league" });
+    if (fx.length === 0) continue;
+    const teamIds = unionRosterAndFixtureTeamIds(rosterIds, fx as FixtureRow[]);
+    if (teamIds.length === 0) continue;
+    const st = filterGhostZeroStandings(computeStandings(teamIds, fx, { mode: "league" }));
     const idx = st.findIndex((r) => r.teamId === id);
     if (idx < 0) continue;
     const row = st[idx]!;
@@ -906,6 +914,9 @@ export default async function TeamPage({
                   fxRow && fxRow.week != null ?
                     savedSimFixtureDetailLine(fxRow.competition, fxRow.cup_round, Number(fxRow.week))
                   : null;
+                const breakdown = m.score_breakdown as { displayLine?: string } | null | undefined;
+                const aetLine =
+                  typeof breakdown?.displayLine === "string" ? breakdown.displayLine : null;
                 return (
                   <li key={m.id}>
                     <Link
@@ -969,8 +980,11 @@ export default async function TeamPage({
                       <span className="min-w-0 flex-1 font-semibold text-slate-900">
                         {isHome ? "vs" : "@"} {oppName}
                       </span>
-                      <span className="shrink-0 font-mono font-bold tabular-nums text-slate-800">
-                        {sFor}–{sAgainst}
+                      <span className="flex shrink-0 flex-col items-end gap-0">
+                        <span className="font-mono font-bold tabular-nums text-slate-800">
+                          {sFor}–{sAgainst}
+                        </span>
+                        <AetScoreLine line={aetLine} className="mt-0 justify-end" />
                       </span>
                       <span className="shrink-0 text-xs text-slate-500">{m.season_label}</span>
                     </Link>
@@ -1185,8 +1199,8 @@ export default async function TeamPage({
           Finances
         </h2>
         <p className="mb-3 text-sm text-slate-600">
-          Prize money from league finishes, domestic cups, and Champions League knockouts, promotion bonuses, season
-          wages, and other cash flows recorded when you run season end in Admin.
+          Prize money from league table finishes (including D2 top spot), domestic cups, Champions League knockouts,
+          season wages, and other cash flows recorded from Admin tools.
         </p>
         <details className="group rounded-xl border border-slate-200 bg-white shadow-sm open:shadow-md">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">

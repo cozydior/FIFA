@@ -15,7 +15,7 @@ export async function GET() {
 
     if (!season?.id) {
       return NextResponse.json({
-        message: "No season row; run season-end persistence first.",
+        message: "No season row in the database yet. Create a season (e.g. Admin → current season) before building CL.",
         schedule: null,
       });
     }

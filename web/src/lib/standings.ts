@@ -24,6 +24,36 @@ export type StandingRow = {
 
 export type StandingsMode = "league" | "tournament";
 
+/**
+ * Teams currently in a league plus any team that appears in that league's fixtures (same season).
+ * Needed after promotion/relegation: roster moves but historical fixtures keep the old league_id.
+ */
+export function unionRosterAndFixtureTeamIds(
+  rosterTeamIds: string[],
+  leagueFixtures: FixtureRow[],
+): string[] {
+  const s = new Set<string>();
+  for (const id of rosterTeamIds) {
+    if (id) s.add(id);
+  }
+  for (const f of leagueFixtures) {
+    s.add(f.home_team_id);
+    s.add(f.away_team_id);
+  }
+  return [...s];
+}
+
+/**
+ * Removes roster-only rows with 0 games when at least one team in the table has played
+ * (avoids duplicate-looking ghost lines after promotion/relegation).
+ */
+export function filterGhostZeroStandings<T extends { played: number }>(rows: T[]): T[] {
+  if (rows.length === 0) return rows;
+  const anyPlayed = rows.some((r) => r.played > 0);
+  if (!anyPlayed) return rows;
+  return rows.filter((r) => r.played > 0);
+}
+
 /** Same ordering for domestic league and tournament group stages (CL + international). */
 export const LEAGUE_STYLE_TIEBREAK_BLURB =
   "Tiebreaks: points → goal difference → saves → head-to-head → mini-league vs other tied teams → coin toss";

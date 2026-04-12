@@ -91,11 +91,16 @@ function WinnerBlock({
           <div className="mt-4 min-w-0 flex-1 sm:ml-5 sm:mt-0">
             <Link
               href={`/player/${winner.playerId}`}
-              className={`block font-semibold tracking-tight text-stone-50 transition hover:text-amber-100 ${
+              className={`flex flex-wrap items-center justify-center gap-2 font-semibold tracking-tight text-stone-50 transition hover:text-amber-100 sm:justify-start ${
                 display.className
               } text-xl sm:text-2xl`}
             >
-              {winner.playerName}
+              {winner.nationalityFlagEmoji ?
+                <span className="shrink-0 text-[1.35rem] leading-none" aria-hidden>
+                  {winner.nationalityFlagEmoji}
+                </span>
+              : null}
+              <span className="min-w-0">{winner.playerName}</span>
             </Link>
             <div className="mt-3 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
               {winner.team ?
@@ -161,7 +166,8 @@ export default async function GoatsPage() {
           </h1>
           <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-stone-400">
             Season champions for the Ballon d&apos;Or (best striker) and Palm d&apos;Or (best
-            goalkeeper). Stats are for the winning season; club shows current squad affiliation.
+            goalkeeper). Totals combine league and international for the winning season; club shows
+            current squad affiliation.
           </p>
         </header>
 
@@ -199,9 +205,14 @@ export default async function GoatsPage() {
                                 textClassName="text-sm"
                               />
                               <span
-                                className={`min-w-0 flex-1 truncate font-medium text-stone-100 ${display.className}`}
+                                className={`flex min-w-0 flex-1 items-center gap-2 truncate font-medium text-stone-100 ${display.className}`}
                               >
-                                {t.playerName}
+                                {t.nationalityFlagEmoji ?
+                                  <span className="shrink-0 text-lg leading-none" aria-hidden>
+                                    {t.nationalityFlagEmoji}
+                                  </span>
+                                : null}
+                                <span className="min-w-0 truncate">{t.playerName}</span>
                               </span>
                               <span className="shrink-0 rounded-lg bg-amber-500/20 px-2.5 py-1 font-mono text-sm font-bold tabular-nums text-amber-100">
                                 ×{t.wins}
@@ -235,9 +246,14 @@ export default async function GoatsPage() {
                                 textClassName="text-sm"
                               />
                               <span
-                                className={`min-w-0 flex-1 truncate font-medium text-stone-100 ${display.className}`}
+                                className={`flex min-w-0 flex-1 items-center gap-2 truncate font-medium text-stone-100 ${display.className}`}
                               >
-                                {t.playerName}
+                                {t.nationalityFlagEmoji ?
+                                  <span className="shrink-0 text-lg leading-none" aria-hidden>
+                                    {t.nationalityFlagEmoji}
+                                  </span>
+                                : null}
+                                <span className="min-w-0 truncate">{t.playerName}</span>
                               </span>
                               <span className="shrink-0 rounded-lg bg-cyan-500/20 px-2.5 py-1 font-mono text-sm font-bold tabular-nums text-cyan-100">
                                 ×{t.wins}

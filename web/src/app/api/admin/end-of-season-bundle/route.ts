@@ -12,7 +12,7 @@ import { persistSeasonEndToSupabase } from "@/lib/seasonEndPersistence";
 
 /**
  * One-button end-of-season action:
- * 1. Season end (promotion/relegation + CL seeding + league/promotion prizes)
+ * 1. Season end (promotion/relegation + league/promotion prizes; CL DB seeding off by default)
  * 2. All pending regional cup final payouts
  * 3. Champions League prize money (auto-detected from CL_F fixture)
  * 4. Season wages (50% squad MV)
@@ -27,6 +27,8 @@ export async function POST(req: Request) {
       skipClPayouts?: boolean;
       skipWages?: boolean;
       skipMarketValues?: boolean;
+      /** When true, also seed CL tournament_entries for the closed season (same as season-end API). */
+      seedChampionsLeague?: boolean;
     };
 
     const seasonLabel =
@@ -51,8 +53,15 @@ export async function POST(req: Request) {
           { status: 400 },
         );
       }
-      const out = await persistSeasonEndToSupabase({ seasonLabel, standings, leagues, applyLeaguePayouts: true });
+      const out = await persistSeasonEndToSupabase({
+        seasonLabel,
+        standings,
+        leagues,
+        applyLeaguePayouts: true,
+        seedChampionsLeague: body.seedChampionsLeague === true,
+      });
       result.seasonEnd = {
+        championsLeagueSeeded: out.championsLeagueSeeded,
         championsLeagueQualifiers: out.result.championsLeagueQualifiers.length,
         teamLeagueUpdates: out.result.teamLeagueUpdates.length,
         leaguePayouts: out.leaguePayouts,

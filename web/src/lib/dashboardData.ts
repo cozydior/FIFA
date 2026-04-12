@@ -1,7 +1,12 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { formatFixtureCalendarLabel } from "@/lib/calendarPhases";
 import { countryCodeToFlagEmoji } from "@/lib/flags";
-import { computeStandings, type FixtureRow } from "@/lib/standings";
+import {
+  computeStandings,
+  filterGhostZeroStandings,
+  unionRosterAndFixtureTeamIds,
+  type FixtureRow,
+} from "@/lib/standings";
 import { buildSeasonMasterFromDatabase } from "@/lib/seasonMasterData";
 import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
 import {
@@ -125,7 +130,8 @@ export async function getDashboardSummary(seasonOverride?: string) {
     teamsByLeague.get(t.league_id)!.push(t);
   }
 
-  const fixtures = (fixturesRaw ?? []) as FixtureRow[];
+  type FixtureWithComp = FixtureRow & { competition?: string | null };
+  const fixtures = (fixturesRaw ?? []) as FixtureWithComp[];
   const teamByPlayer = new Map((players ?? []).map((p) => [p.id, p.team_id]));
   const teamSaves: Record<string, number> = {};
   for (const s of stats ?? []) {
@@ -156,18 +162,23 @@ export async function getDashboardSummary(seasonOverride?: string) {
     }[];
   }[] = [];
 
+  const allTeamsById = new Map((teams ?? []).map((t) => [t.id, t]));
+
   for (const L of leagues ?? []) {
     const lt = teamsByLeague.get(L.id) ?? [];
-    if (lt.length === 0) continue;
-    const teamIds = lt.map((t) => t.id);
+    const rosterIds = lt.map((t) => t.id);
     const leagueFixtures = fixtures.filter(
-      (f) => f.league_id === L.id,
+      (f) => f.league_id === L.id && f.competition === "league",
     ) as FixtureRow[];
-    const st = computeStandings(teamIds, leagueFixtures, {
-      mode: "league",
-      teamSaves,
-    });
-    const nameById = new Map(lt.map((t) => [t.id, t.name]));
+    const teamIds = unionRosterAndFixtureTeamIds(rosterIds, leagueFixtures);
+    if (teamIds.length === 0) continue;
+    const st = filterGhostZeroStandings(
+      computeStandings(teamIds, leagueFixtures, {
+        mode: "league",
+        teamSaves,
+      }),
+    );
+    const nameById = new Map((teams ?? []).map((t) => [t.id, t.name]));
     tables.push({
       leagueId: L.id,
       leagueName: L.name,
@@ -178,7 +189,7 @@ export async function getDashboardSummary(seasonOverride?: string) {
       standings: st.map((r) => ({
         teamId: r.teamId,
         teamName: nameById.get(r.teamId) ?? r.teamId,
-        teamLogoUrl: lt.find((x) => x.id === r.teamId)?.logo_url ?? null,
+        teamLogoUrl: allTeamsById.get(r.teamId)?.logo_url ?? null,
         points: r.points,
         played: r.played,
         won: r.won,

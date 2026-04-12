@@ -26,6 +26,17 @@ import { fotMobBadgeClass } from "@/lib/fotMobBadge";
 
 export const revalidate = 60;
 
+/** League stats row; shots_* optional when DB migration not applied (fallback select). */
+type PlayerLeagueStatsRow = {
+  season: string;
+  goals: number | null;
+  saves: number | null;
+  appearances: number | null;
+  average_rating: number | null;
+  shots_taken?: number | null;
+  shots_faced?: number | null;
+};
+
 export default async function PlayerPage({
   params,
 }: {
@@ -91,7 +102,7 @@ export default async function PlayerPage({
     .eq("player_id", id)
     .order("season_label");
 
-  const { data: statsRows } = await supabase
+  const { data: statsRowsRaw } = await supabase
     .from("stats")
     .select("season, goals, saves, appearances, average_rating, shots_taken, shots_faced")
     .eq("player_id", id)
@@ -107,6 +118,7 @@ export default async function PlayerPage({
       }
       return res;
     });
+  const statsRows = (statsRowsRaw ?? []) as PlayerLeagueStatsRow[];
 
   const { data: intlRows } = await supabase
     .from("player_international_stats")

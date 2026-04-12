@@ -78,7 +78,11 @@ export async function POST(req: Request) {
 
     if (!body.skipWages) {
       const wages = await applySeasonWages(supabase, seasonLabel);
-      result.wages = { teams: wages.length };
+      result.wages = {
+        charged: wages.results.length,
+        skippedAlreadyPaid: wages.skippedAlreadyPaid,
+        teamCount: wages.teamCount,
+      };
     }
 
     if (!body.skipMarketValues) {

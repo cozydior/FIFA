@@ -9,6 +9,7 @@ import {
   Trophy,
   Wallet,
 } from "lucide-react";
+import { formatApplyWagesResponseMessage } from "@/lib/formatApplyWagesMessage";
 
 /**
  * Manual end-of-season flow: suggested order, optional “done” ticks (tracking only), one button per step.
@@ -305,8 +306,7 @@ export function EndOfSeasonChecklistSection() {
                 });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error ?? "Failed");
-                const n = (data.results as unknown[])?.length ?? 0;
-                return `Season wages applied to ${n} clubs.`;
+                return formatApplyWagesResponseMessage(data);
               })
             }
           >

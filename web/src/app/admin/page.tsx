@@ -27,6 +27,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { EndOfSeasonChecklistSection } from "@/components/admin/EndOfSeasonChecklistSection";
+import { formatApplyWagesResponseMessage } from "@/lib/formatApplyWagesMessage";
 import { parseTrophyList, type TrophyCabinetEntry } from "@/lib/trophyCabinet";
 
 type League = {
@@ -414,6 +415,7 @@ export default function AdminPage() {
             <ResetPeakMarketValueSection onSuccess={refreshLists} />
             <ReleasePlayerSection players={players} onSuccess={refreshLists} />
             <FreeAgencyPickupSection players={players} teams={teams} onSuccess={refreshLists} />
+            <ApplyWagesSection />
             <ResetSimulationSection onSuccess={refreshLists} />
             <InsolvencySection />
           </>
@@ -1803,11 +1805,11 @@ function CreatePlayerSection({
 }
 
 function ApplyWagesSection() {
-  const [pending, setPending] = useState(false);
+  const [pending, setPending] = useState<"wages" | "reset" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  async function run() {
-    setPending(true);
+  async function runApplyWages() {
+    setPending("wages");
     setMessage(null);
     try {
       const res = await fetch("/api/admin/apply-wages", {
@@ -1817,13 +1819,28 @@ function ApplyWagesSection() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed");
+      setMessage(formatApplyWagesResponseMessage(data));
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Error");
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function runResetLastWagesSeason() {
+    setPending("reset");
+    setMessage(null);
+    try {
+      const res = await fetch("/api/admin/reset-last-wages-season", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
       setMessage(
-        `Charged wages for ${data.results?.length ?? 0} teams (season ${data.season}).`,
+        `Cleared last wages season for ${data.teamCount ?? 0} team(s). You can run Apply wages again.`,
       );
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Error");
     } finally {
-      setPending(false);
+      setPending(null);
     }
   }
 
@@ -1840,15 +1857,26 @@ function ApplyWagesSection() {
         <strong>career salary earned</strong> increased by 50% of their current MV
         (player profiles and the guide explain the split).
       </p>
-      <button
-        type="button"
-        onClick={() => void run()}
-        disabled={pending}
-        className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium disabled:opacity-50"
-      >
-        {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-        Apply wages (current season)
-      </button>
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => void runApplyWages()}
+          disabled={pending !== null}
+          className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium disabled:opacity-50"
+        >
+          {pending === "wages" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          Apply wages (current season)
+        </button>
+        <button
+          type="button"
+          onClick={() => void runResetLastWagesSeason()}
+          disabled={pending !== null}
+          className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50/80 px-4 py-2 text-sm font-medium text-amber-950 hover:bg-amber-100/80 disabled:opacity-50"
+        >
+          {pending === "reset" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+          Reset last wages season (all teams)
+        </button>
+      </div>
       {message && (
         <p className="mt-3 text-sm text-zinc-700">{message}</p>
       )}

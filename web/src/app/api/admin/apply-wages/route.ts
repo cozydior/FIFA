@@ -18,8 +18,8 @@ export async function POST(req: Request) {
     }
 
     const supabase = getSupabaseAdmin();
-    const results = await applySeasonWages(supabase, season);
-    return NextResponse.json({ ok: true, season, results });
+    const out = await applySeasonWages(supabase, season);
+    return NextResponse.json({ ok: true, season, ...out });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";
     return NextResponse.json({ error: message }, { status: 500 });

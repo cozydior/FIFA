@@ -43,20 +43,30 @@ export async function recordTeamTransaction(
 
 /**
  * Charge 50% of squad MV once per season. Returns teams that could not afford (negative balance allowed = debt).
+ * Teams with `last_wages_season` already equal to `seasonLabel` are skipped (idempotent) and counted in `skippedAlreadyPaid`.
  */
 export async function applySeasonWages(
   supabase: SupabaseClient,
   seasonLabel: string,
-): Promise<{ teamId: string; wages: number; newBalance: number }[]> {
+): Promise<{
+  results: { teamId: string; wages: number; newBalance: number }[];
+  skippedAlreadyPaid: number;
+  teamCount: number;
+}> {
   const { data: teams, error: te } = await supabase
     .from("teams")
     .select("id, current_balance, last_wages_season");
   if (te) throw new Error(te.message);
 
+  const list = teams ?? [];
   const results: { teamId: string; wages: number; newBalance: number }[] = [];
+  let skippedAlreadyPaid = 0;
 
-  for (const t of teams ?? []) {
-    if (t.last_wages_season === seasonLabel) continue;
+  for (const t of list) {
+    if (t.last_wages_season === seasonLabel) {
+      skippedAlreadyPaid += 1;
+      continue;
+    }
 
     const { data: players, error: pe } = await supabase
       .from("players")
@@ -119,5 +129,5 @@ export async function applySeasonWages(
     });
   }
 
-  return results;
+  return { results, skippedAlreadyPaid, teamCount: list.length };
 }

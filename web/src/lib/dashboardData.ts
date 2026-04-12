@@ -240,9 +240,8 @@ export async function getDashboardSummary(seasonOverride?: string) {
       };
     })
     .sort((a, b) => {
-      const sk = clubSortKey(a) - clubSortKey(b);
-      if (sk !== 0) return sk;
-      return a.week - b.week;
+      if (a.week !== b.week) return a.week - b.week;
+      return clubSortKey(a) - clubSortKey(b);
     });
 
   const { data: intlComps } = await supabase

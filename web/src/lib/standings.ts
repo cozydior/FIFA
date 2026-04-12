@@ -119,8 +119,10 @@ function compareRows(
 ): number {
   // 1) points
   if (b.points !== a.points) return b.points - a.points;
-  // 2) goals for
-  if (b.goalsFor !== a.goalsFor) return b.goalsFor - a.goalsFor;
+  // 2) goal difference
+  const gdA = a.goalsFor - a.goalsAgainst;
+  const gdB = b.goalsFor - b.goalsAgainst;
+  if (gdB !== gdA) return gdB - gdA;
 
   if (mode === "league") {
     // 3) saves

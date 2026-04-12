@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+/* Light-only sports UI */
+:root {
+  --background: #e8eef4;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-border: #d8dee9;
+  --accent: #047857;
+  --accent-hover: #065f46;
+  --nav: #0c4a6e;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-lexend), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  color-scheme: light;
+}
+
+html.light {
+  color-scheme: light;
+}
+
+body {
+  background: linear-gradient(180deg, #dce6f2 0%, #e8eef4 32%, #eef2f7 100%);
+  background-attachment: fixed;
+  color: var(--foreground);
+  font-family: var(--font-lexend), ui-sans-serif, system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+/* Subtle pitch stripe for match-style panels */
+.bg-pitch-stripes {
+  background-color: #f0fdf4;
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 8px,
+    rgba(16, 185, 129, 0.06) 8px,
+    rgba(16, 185, 129, 0.06) 16px
+  );
+}
+
+@keyframes match-feed-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-match-feed-in {
+  animation: match-feed-enter 0.42s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes score-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-score-pop {
+  animation: score-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}

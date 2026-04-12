@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { insertChampionsLeagueGroupFixtures } from "@/lib/championsLeagueFixtures";
+import { fetchLeagueStandingsForSeasonEnd } from "@/lib/seasonEconomy";
+import {
+  applySeasonEnd,
+  championsLeagueQualifiedVia,
+} from "@/lib/seasonStructure";
 import { canSeedChampionsLeagueFixtures } from "@/lib/tournamentGates";
 import { getSimPreviewTestMode } from "@/lib/appSettings";
 
@@ -58,16 +63,27 @@ export async function POST(req: Request) {
       }
     }
 
-    const { data: teams, error: teamErr } = await supabase
-      .from("teams")
-      .select("id")
-      .order("name")
-      .limit(6);
-    if (teamErr) throw new Error(teamErr.message);
-    if (!teams || teams.length < 6) {
+    const { standings, leagues } = await fetchLeagueStandingsForSeasonEnd(
+      supabase,
+      season.label,
+    );
+    if (standings.length === 0) {
       return NextResponse.json(
         {
-          error: `Need at least 6 teams in the database (found ${teams?.length ?? 0}).`,
+          error:
+            "No league tables for this season. Play or simulate league fixtures so each D1 league has results.",
+        },
+        { status: 400 },
+      );
+    }
+    const cl = applySeasonEnd(standings, leagues);
+    if (cl.championsLeagueQualifiers.length !== 6) {
+      return NextResponse.json(
+        {
+          error:
+            `Champions League needs exactly 6 qualifiers (top 2 from each D1 where the country has D1+D2). ` +
+            `Found ${cl.championsLeagueQualifiers.length}. ` +
+            `Ensure three countries each have D1 and D2 leagues with four teams, and that league tables are complete enough to rank positions 1–2.`,
         },
         { status: 400 },
       );
@@ -95,10 +111,13 @@ export async function POST(req: Request) {
 
     await supabase.from("tournament_entries").delete().eq("tournament_id", t.id);
     const { error: ie } = await supabase.from("tournament_entries").insert(
-      teams.map((row) => ({
+      cl.championsLeagueQualifiers.map((q) => ({
         tournament_id: t.id,
-        team_id: row.id,
-        qualified_via: mode === "preview" ? "Preview seed (Admin)" : "Season seed (Admin)",
+        team_id: q.teamId,
+        qualified_via:
+          mode === "preview"
+            ? `${championsLeagueQualifiedVia(q.country, q.position)} (preview)`
+            : championsLeagueQualifiedVia(q.country, q.position),
       })),
     );
     if (ie) throw new Error(ie.message);
@@ -112,13 +131,13 @@ export async function POST(req: Request) {
     const { inserted } = await insertChampionsLeagueGroupFixtures(
       supabase,
       season.label,
-      teams.map((x) => x.id),
+      cl.championsLeagueTeamIds,
     );
 
     return NextResponse.json({
       ok: true,
       seasonLabel: season.label,
-      teamIds: teams.map((x) => x.id),
+      teamIds: cl.championsLeagueTeamIds,
       groupFixturesInserted: inserted,
     });
   } catch (e) {

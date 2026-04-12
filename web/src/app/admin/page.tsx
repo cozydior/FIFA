@@ -637,6 +637,9 @@ function SimPreviewToggleSection() {
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [refreshSeason, setRefreshSeason] = useState("");
+  const [refreshPending, setRefreshPending] = useState(false);
+  const [refreshMsg, setRefreshMsg] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/admin/sim-preview-test-mode")
@@ -666,6 +669,31 @@ function SimPreviewToggleSection() {
     }
   }
 
+  async function refreshKnockouts() {
+    setRefreshPending(true);
+    setRefreshMsg(null);
+    try {
+      const res = await fetch("/api/admin/tournament-progress-refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          seasonLabel: refreshSeason.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      const r = data.regionalCup as { sfInserted?: number; fInserted?: number };
+      const cl = data.championsLeague as { clSfInserted?: number; clFinalInserted?: boolean };
+      setRefreshMsg(
+        `Cups: +${r?.sfInserted ?? 0} SF rows, +${r?.fInserted ?? 0} final. CL: +${cl?.clSfInserted ?? 0} SF, final ${cl?.clFinalInserted ? "yes" : "no"}.`,
+      );
+    } catch (e) {
+      setRefreshMsg(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setRefreshPending(false);
+    }
+  }
+
   return (
     <section className="rounded-2xl border border-amber-200/90 bg-amber-50/40 p-6 shadow-sm">
       <h2 className="mb-2 text-lg font-semibold text-zinc-900">Sim preview test mode</h2>
@@ -684,6 +712,34 @@ function SimPreviewToggleSection() {
         {loading ? "Loading…" : pending ? "Saving…" : "Show preview / test controls"}
       </label>
       {msg && <p className="mt-2 text-sm text-zinc-700">{msg}</p>}
+      {enabled && (
+        <div className="mt-4 rounded-lg border border-amber-300/80 bg-white/60 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-600">
+            Knockout refresh (backfill)
+          </p>
+          <p className="mt-1 text-xs text-zinc-600">
+            Re-runs regional cup (QF→SF→F) and Champions League (group→SF→F) progression for the season. Use if you
+            finished rounds before auto-progress existed, or to fix stuck brackets.
+          </p>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <input
+              value={refreshSeason}
+              onChange={(e) => setRefreshSeason(e.target.value)}
+              placeholder="Season label (empty = current)"
+              className="min-w-[10rem] rounded-lg border border-zinc-300 px-2 py-1.5 text-sm"
+            />
+            <button
+              type="button"
+              disabled={refreshPending}
+              onClick={() => void refreshKnockouts()}
+              className="rounded-lg bg-amber-800 px-3 py-1.5 text-sm font-semibold text-white hover:bg-amber-900 disabled:opacity-50"
+            >
+              {refreshPending ? "Refreshing…" : "Refresh knockouts"}
+            </button>
+          </div>
+          {refreshMsg && <p className="mt-2 text-xs text-zinc-700">{refreshMsg}</p>}
+        </div>
+      )}
     </section>
   );
 }

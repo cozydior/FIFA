@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
 import { persistInternationalMatchdayResult } from "@/lib/internationalMatchPersistence";
+import {
+  progressChampionsLeagueKnockouts,
+  progressRegionalCupKnockouts,
+} from "@/lib/regionalCupProgress";
 import type { PlayerMatchResult, ScoreBreakdown } from "@/lib/simEngine";
 
 type BodyPlayer = {
@@ -323,6 +327,13 @@ export async function POST(req: Request) {
       } catch {
         /* table may not exist until migration applied */
       }
+    }
+
+    try {
+      await progressRegionalCupKnockouts(supabase, season);
+      await progressChampionsLeagueKnockouts(supabase, season);
+    } catch {
+      /* optional — never fail save if bracket insert fails */
     }
 
     return NextResponse.json({ ok: true, season, savedMatchId });

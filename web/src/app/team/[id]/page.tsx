@@ -34,6 +34,7 @@ import { formatFixtureCalendarLabel } from "@/lib/calendarPhases";
 import {
   clubCompetitionDisplay,
   clubFixtureWeekKind,
+  savedSimFixtureDetailLine,
 } from "@/lib/matchCompetitionDisplay";
 import { CompetitionBrandLogo } from "@/components/CompetitionBrandLogo";
 import {
@@ -306,9 +307,9 @@ export default async function TeamPage({
     savedSimFixtureIds.length > 0 ?
       await supabase
         .from("fixtures")
-        .select("id, competition, league_id, country, cup_round")
+        .select("id, competition, league_id, country, cup_round, week")
         .in("id", savedSimFixtureIds)
-    : { data: [] as { id: string; competition: string | null; league_id: string | null; country: string | null; cup_round: string | null }[] };
+    : { data: [] as { id: string; competition: string | null; league_id: string | null; country: string | null; cup_round: string | null; week: number | null }[] };
   const savedSimFixtureById = new Map(
     (savedSimFixturesRaw ?? []).map((f) => [f.id, f]),
   );
@@ -735,7 +736,7 @@ export default async function TeamPage({
             Honours
           </h2>
           {trophies.length === 0 ?
-            <p className="rounded-xl border border-dashed border-slate-300 bg-white/80 px-4 py-6 text-center text-sm text-slate-500">
+            <p className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-500">
               No silverware on file — win cups and leagues to fill this cabinet.
             </p>
           : <HonourCabinetChips groups={trophies} defMap={defMap} />}
@@ -901,6 +902,10 @@ export default async function TeamPage({
                       flagByCountryForDisplay,
                     )
                   : null;
+                const scheduleDetail =
+                  fxRow && fxRow.week != null ?
+                    savedSimFixtureDetailLine(fxRow.competition, fxRow.cup_round, Number(fxRow.week))
+                  : null;
                 return (
                   <li key={m.id}>
                     <Link
@@ -910,28 +915,33 @@ export default async function TeamPage({
                       <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[0.65rem] font-black ${badge}`}>
                         {letter}
                       </span>
-                      <span className="inline-flex min-w-0 max-w-[11rem] shrink-0 items-center gap-1.5 truncate text-xs font-semibold text-slate-600 sm:max-w-[14rem]">
-                        {compDisp?.leagueLogoUrl ?
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={compDisp.leagueLogoUrl}
-                            alt=""
-                            className="h-6 w-6 shrink-0 rounded-md border border-slate-200/80 bg-white object-contain p-0.5"
-                          />
-                        : null}
-                        {compDisp?.useClBrand ?
-                          <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-200/80 bg-white p-0.5">
-                            <CompetitionBrandLogo slug="champions_league" className="h-4 w-4" />
+                      <span className="inline-flex min-w-0 max-w-[11rem] shrink-0 flex-col gap-0.5 sm:max-w-[14rem]">
+                        <span className="inline-flex min-w-0 items-center gap-1.5 truncate text-xs font-semibold text-slate-600">
+                          {compDisp?.leagueLogoUrl ?
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={compDisp.leagueLogoUrl}
+                              alt=""
+                              className="h-6 w-6 shrink-0 rounded-md border border-slate-200/80 bg-white object-contain p-0.5"
+                            />
+                          : null}
+                          {compDisp?.useClBrand ?
+                            <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-200/80 bg-white p-0.5">
+                              <CompetitionBrandLogo slug="champions_league" className="h-4 w-4" />
+                            </span>
+                          : null}
+                          {compDisp?.countryFlagEmoji ?
+                            <span className="shrink-0 text-base leading-none" aria-hidden>
+                              {compDisp.countryFlagEmoji}
+                            </span>
+                          : null}
+                          <span className="min-w-0 truncate">
+                            {compDisp?.competitionLabel ?? "Saved match"}
                           </span>
-                        : null}
-                        {compDisp?.countryFlagEmoji ?
-                          <span className="shrink-0 text-base leading-none" aria-hidden>
-                            {compDisp.countryFlagEmoji}
-                          </span>
-                        : null}
-                        <span className="min-w-0 truncate">
-                          {compDisp?.competitionLabel ?? "Saved match"}
                         </span>
+                        {scheduleDetail ?
+                          <span className="text-[0.65rem] font-medium text-slate-500">{scheduleDetail}</span>
+                        : null}
                       </span>
                       <span className="flex shrink-0 items-center gap-1.5">
                         {selfLogo ?

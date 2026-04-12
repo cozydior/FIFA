@@ -43,7 +43,7 @@ export function HonourCabinetChips({
         return (
           <div
             key={key}
-            className="inline-flex max-w-full min-w-0 items-start gap-2.5 rounded-lg border border-slate-200/90 bg-slate-50/80 px-3 py-2"
+            className="inline-flex max-w-full min-w-0 items-start gap-2.5 rounded-lg border border-slate-200/90 bg-white px-3 py-2"
           >
             <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center">
               <TrophyIconDisplay iconUrl={iconUrl} />

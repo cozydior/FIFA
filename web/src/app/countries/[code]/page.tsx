@@ -6,12 +6,14 @@ import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import {
   Check,
+  ChevronDown,
   History,
   Minus,
   TrendingUp,
   Trophy,
   X,
 } from "lucide-react";
+import { CompetitionBrandLogo } from "@/components/CompetitionBrandLogo";
 import { fetchNationalTournamentHistory } from "@/lib/nationalTournamentHistory";
 import { formatMoneyPounds } from "@/lib/formatMoney";
 import {
@@ -29,6 +31,18 @@ import { sortCabinetGroups } from "@/lib/honourDisplayOrder";
 export const dynamic = "force-dynamic";
 
 const CALLOUP_ORDER = ["ST1", "ST2", "GK1"] as const;
+
+const MAX_INTL_SIM_ROWS = 100;
+
+function intlStageDetail(stage: string, groupName: string | null, week: number): string {
+  const bits: string[] = [];
+  if (stage === "group" && groupName) bits.push(`Group ${groupName}`);
+  else if (stage === "SF") bits.push("Semi-final");
+  else if (stage === "F") bits.push("Final");
+  else if (stage && stage !== "group") bits.push(stage);
+  bits.push(`Week ${week}`);
+  return bits.join(" · ");
+}
 
 function intlFormResult(
   ntId: string,
@@ -170,14 +184,28 @@ export default async function CountryPage({
     home_score: number;
     away_score: number;
   };
+  type IntlSimRow = {
+    id: string;
+    week: number;
+    stage: string;
+    group_name: string | null;
+    home_national_team_id: string;
+    away_national_team_id: string;
+    home_score: number;
+    away_score: number;
+    season_label: string;
+    competitionSlug: string;
+    competitionName: string;
+  };
   let intlFormLast: IntlFormRow[] = [];
+  let intlSimMatchHistory: IntlSimRow[] = [];
   const intlFormOpp = new Map<string, { name: string; flag_emoji: string | null }>();
 
   if (nt) {
     const { data: ifx } = await supabase
       .from("international_fixtures")
       .select(
-        "id, week, home_score, away_score, home_national_team_id, away_national_team_id, competition_id",
+        "id, week, stage, group_name, home_score, away_score, home_national_team_id, away_national_team_id, competition_id",
       )
       .or(`home_national_team_id.eq.${nt.id},away_national_team_id.eq.${nt.id}`)
       .eq("status", "completed");
@@ -185,29 +213,45 @@ export default async function CountryPage({
     const compIds = [...new Set((ifx ?? []).map((x) => x.competition_id).filter(Boolean))] as string[];
     const { data: compsMeta } =
       compIds.length > 0 ?
-        await supabase.from("international_competitions").select("id, season_label").in("id", compIds)
-      : { data: [] as { id: string; season_label: string }[] };
-    const compSeason = new Map((compsMeta ?? []).map((c) => [c.id, c.season_label]));
+        await supabase
+          .from("international_competitions")
+          .select("id, season_label, slug, name")
+          .in("id", compIds)
+      : { data: [] as { id: string; season_label: string; slug: string; name: string }[] };
+    const compById = new Map(
+      (compsMeta ?? []).map((c) => [
+        c.id,
+        { season_label: c.season_label, slug: c.slug, name: c.name },
+      ]),
+    );
 
-    const sorted = (ifx ?? [])
+    const enriched = (ifx ?? [])
       .filter((f) => f.home_score != null && f.away_score != null)
-      .map((f) => ({
-        id: f.id,
-        week: f.week,
-        home_national_team_id: f.home_national_team_id,
-        away_national_team_id: f.away_national_team_id,
-        home_score: Number(f.home_score),
-        away_score: Number(f.away_score),
-        season_label: compSeason.get(f.competition_id) ?? "",
-      }))
+      .map((f) => {
+        const meta = compById.get(f.competition_id);
+        return {
+          id: f.id as string,
+          week: Number(f.week),
+          stage: String(f.stage ?? ""),
+          group_name: (f.group_name as string | null) ?? null,
+          home_national_team_id: f.home_national_team_id as string,
+          away_national_team_id: f.away_national_team_id as string,
+          home_score: Number(f.home_score),
+          away_score: Number(f.away_score),
+          season_label: meta?.season_label ?? "",
+          competitionSlug: meta?.slug ?? "",
+          competitionName: meta?.name ?? "International",
+        };
+      })
       .sort((a, b) => {
         if (a.season_label !== b.season_label) return b.season_label.localeCompare(a.season_label);
         return b.week - a.week;
-      })
-      .slice(0, 5)
-      .reverse();
+      });
 
-    intlFormLast = sorted.map((f) => ({
+    intlSimMatchHistory = enriched.slice(0, MAX_INTL_SIM_ROWS);
+
+    const forForm = enriched.slice(0, 5).reverse();
+    intlFormLast = forForm.map((f) => ({
       id: f.id,
       home_national_team_id: f.home_national_team_id,
       away_national_team_id: f.away_national_team_id,
@@ -217,7 +261,7 @@ export default async function CountryPage({
 
     const oppIds = [
       ...new Set(
-        sorted.map((f) =>
+        intlSimMatchHistory.map((f) =>
           f.home_national_team_id === nt.id ? f.away_national_team_id : f.home_national_team_id,
         ),
       ),
@@ -322,7 +366,7 @@ export default async function CountryPage({
                 <TrendingUp className="h-4 w-4 shrink-0 text-emerald-600" />
                 Current form (last 5 international)
               </p>
-              <div className="mt-1.5 flex flex-wrap items-end gap-3">
+              <div className="mt-1.5 flex flex-wrap items-center gap-3">
                 {intlFormLast.length > 0 ?
                   intlFormLast.map((f) => {
                     const letter = intlFormResult(
@@ -344,7 +388,7 @@ export default async function CountryPage({
                     return (
                       <span
                         key={f.id}
-                        className="inline-flex flex-col items-center gap-1"
+                        className="inline-flex items-center"
                         title={
                           opp ?
                             `${letter === "W" ? "Win" : letter === "L" ? "Loss" : "Draw"} vs ${opp.name}`
@@ -360,11 +404,6 @@ export default async function CountryPage({
                             <X className="h-4 w-4" strokeWidth={3} />
                           : <Minus className="h-4 w-4" strokeWidth={3} />}
                         </span>
-                        {opp?.flag_emoji ?
-                          <span className="text-lg leading-none" aria-hidden>
-                            {opp.flag_emoji}
-                          </span>
-                        : null}
                       </span>
                     );
                   })
@@ -439,7 +478,7 @@ export default async function CountryPage({
               International honours
             </h2>
             {ntCabinet.length === 0 ?
-              <p className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white/80 px-4 py-6 text-center text-sm text-slate-500">
+              <p className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-500">
                 No silverware on file yet — use Admin to record honours.
               </p>
             : <div className="mt-4">
@@ -515,6 +554,103 @@ export default async function CountryPage({
                 })}
               </ul>
             }
+          </section>
+        )}
+
+        {nt && intlSimMatchHistory.length > 0 && (
+          <section className="mb-8">
+            <h2 className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-500">
+              International sim results
+            </h2>
+            <p className="mb-3 text-sm text-slate-600">
+              Completed fixtures from the sim (winner, score, competition). There is no saved match report — rows are
+              read-only, like club saved sims without opening Match center.
+            </p>
+            <details className="group rounded-xl border border-slate-200 bg-white shadow-sm open:shadow-md">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
+                <span>
+                  Browse {intlSimMatchHistory.length} international match
+                  {intlSimMatchHistory.length === 1 ? "" : "es"}
+                  {intlSimMatchHistory.length >= MAX_INTL_SIM_ROWS ?
+                    ` (latest ${MAX_INTL_SIM_ROWS})`
+                  : ""}
+                </span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
+              </summary>
+              <ul className="border-t border-slate-100">
+                {intlSimMatchHistory.map((m) => {
+                  const isHome = m.home_national_team_id === nt.id;
+                  const oppId = isHome ? m.away_national_team_id : m.home_national_team_id;
+                  const opp = intlFormOpp.get(oppId);
+                  const oppName = opp?.name ?? "Opponent";
+                  const sFor = isHome ? m.home_score : m.away_score;
+                  const sAgainst = isHome ? m.away_score : m.home_score;
+                  const letter = intlFormResult(
+                    nt.id,
+                    m.home_national_team_id,
+                    m.away_national_team_id,
+                    m.home_score,
+                    m.away_score,
+                  );
+                  const badge =
+                    letter === "W" ? "bg-emerald-500 text-white"
+                    : letter === "L" ? "bg-red-500 text-white"
+                    : "bg-slate-400 text-white";
+                  const tourHref =
+                    m.competitionSlug ?
+                      `/competitions/international/${m.competitionSlug}?season=${encodeURIComponent(m.season_label)}`
+                    : null;
+                  return (
+                    <li key={m.id}>
+                      <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0">
+                        <span
+                          className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[0.65rem] font-black ${badge}`}
+                        >
+                          {letter}
+                        </span>
+                        <span className="inline-flex min-w-0 max-w-[11rem] shrink-0 flex-col gap-0.5 sm:max-w-[14rem]">
+                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+                            {m.competitionSlug ?
+                              <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-200/80 bg-white p-0.5">
+                                <CompetitionBrandLogo slug={m.competitionSlug} className="h-4 w-4" />
+                              </span>
+                            : null}
+                            {tourHref ?
+                              <Link href={tourHref} className="min-w-0 truncate hover:text-emerald-800 hover:underline">
+                                {m.competitionName}
+                              </Link>
+                            : <span className="min-w-0 truncate">{m.competitionName}</span>}
+                          </span>
+                          <span className="text-[0.65rem] font-medium text-slate-500">
+                            {intlStageDetail(m.stage, m.group_name, m.week)}
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-1.5">
+                          {displayFlag ?
+                            <span className="flex h-9 w-9 items-center justify-center text-lg leading-none" aria-hidden>
+                              {displayFlag}
+                            </span>
+                          : null}
+                          <span className="text-xs font-bold text-slate-400">{isHome ? "v" : "@"}</span>
+                          {opp?.flag_emoji ?
+                            <span className="flex h-9 w-9 items-center justify-center text-lg leading-none" aria-hidden>
+                              {opp.flag_emoji}
+                            </span>
+                          : null}
+                        </span>
+                        <span className="min-w-0 flex-1 font-semibold text-slate-900">
+                          {isHome ? "vs" : "@"} {oppName}
+                        </span>
+                        <span className="shrink-0 font-mono font-bold tabular-nums text-slate-800">
+                          {sFor}–{sAgainst}
+                        </span>
+                        <span className="shrink-0 text-xs text-slate-500">{m.season_label}</span>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </details>
           </section>
         )}
 

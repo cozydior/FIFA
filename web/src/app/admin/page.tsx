@@ -413,6 +413,7 @@ export default function AdminPage() {
           <>
             <TransferMarketSection teams={teams} onSuccess={refreshLists} />
             <ResetPeakMarketValueSection onSuccess={refreshLists} />
+            <BackfillStatsTeamIdSection />
             <ReleasePlayerSection players={players} onSuccess={refreshLists} />
             <FreeAgencyPickupSection players={players} teams={teams} onSuccess={refreshLists} />
             <ApplyWagesSection />
@@ -1880,6 +1881,69 @@ function ApplyWagesSection() {
       {message && (
         <p className="mt-3 text-sm text-zinc-700">{message}</p>
       )}
+    </section>
+  );
+}
+
+function BackfillStatsTeamIdSection() {
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function run(overwrite: boolean) {
+    setPending(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/admin/backfill-stats-team-id", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ overwrite }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      setMessage(
+        overwrite ?
+          `Updated ${data.updatedRows} stat row(s) across ${data.playersWithClub} player(s) with a club (overwrote existing club on stats).`
+        : `Filled ${data.updatedRows} stat row(s) with each player's current club (${data.playersWithClub} players with a club; only rows that had no club saved).`,
+      );
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-4 shadow-sm">
+      <div className="mb-2 flex items-center gap-2 text-zinc-900">
+        <Users className="h-4 w-4 text-zinc-600" aria-hidden />
+        <h3 className="text-sm font-semibold">League stats — club column</h3>
+      </div>
+      <p className="mb-3 text-xs text-zinc-600">
+        Backfills <code className="rounded bg-white px-1 font-mono text-[0.65rem]">stats.team_id</code> from each
+        player&apos;s <strong>current</strong> club. Use after adding the migration so player profiles show which club
+        they played for each season. Players without a club are skipped. &quot;Fill gaps only&quot; updates rows where
+        the club is still empty; use overwrite only if you accept wrong clubs for past seasons after transfers.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => void run(false)}
+          disabled={pending}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+        >
+          {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Users className="h-3.5 w-3.5" />}
+          Fill gaps from current club
+        </button>
+        <button
+          type="button"
+          onClick={() => void run(true)}
+          disabled={pending}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50/80 px-3 py-1.5 text-xs font-medium text-amber-950 hover:bg-amber-100/80 disabled:opacity-50"
+        >
+          Overwrite all stat rows (current club)
+        </button>
+      </div>
+      {message && <p className="mt-2 text-xs text-zinc-700">{message}</p>}
     </section>
   );
 }

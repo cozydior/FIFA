@@ -45,6 +45,11 @@ type PlayerLeagueStatsRow = {
   average_rating: number | null;
   shots_taken?: number | null;
   shots_faced?: number | null;
+  team_id?: string | null;
+  teams?:
+    | { id: string; name: string; logo_url?: string | null }
+    | { id: string; name: string; logo_url?: string | null }[]
+    | null;
 };
 
 export default async function PlayerPage({
@@ -114,19 +119,34 @@ export default async function PlayerPage({
 
   const { data: statsRowsRaw } = await supabase
     .from("stats")
-    .select("season, goals, saves, appearances, average_rating, shots_taken, shots_faced")
+    .select(
+      "season, goals, saves, appearances, average_rating, shots_taken, shots_faced, team_id, teams(id, name, logo_url)",
+    )
     .eq("player_id", id)
     .order("season", { ascending: false })
-    .then((res) => {
-      // If columns don't exist yet (migration not applied), fall back without them
-      if (res.error) {
-        return supabase
-          .from("stats")
-          .select("season, goals, saves, appearances, average_rating")
-          .eq("player_id", id)
-          .order("season", { ascending: false });
-      }
-      return res;
+    .then(async (res) => {
+      if (!res.error) return res;
+      const noShots = await supabase
+        .from("stats")
+        .select(
+          "season, goals, saves, appearances, average_rating, team_id, teams(id, name, logo_url)",
+        )
+        .eq("player_id", id)
+        .order("season", { ascending: false });
+      if (!noShots.error) return noShots;
+      const noTeam = await supabase
+        .from("stats")
+        .select(
+          "season, goals, saves, appearances, average_rating, shots_taken, shots_faced",
+        )
+        .eq("player_id", id)
+        .order("season", { ascending: false });
+      if (!noTeam.error) return noTeam;
+      return supabase
+        .from("stats")
+        .select("season, goals, saves, appearances, average_rating")
+        .eq("player_id", id)
+        .order("season", { ascending: false });
     });
   const statsRows = [...(statsRowsRaw ?? [])].sort((a, b) =>
     compareSeasonLabelsDesc(a.season, b.season),
@@ -321,7 +341,19 @@ export default async function PlayerPage({
     insBySeason,
     currentSeason,
     currentTeamMini,
+    transferRows,
   );
+  for (const r of statsRows ?? []) {
+    const raw = r.teams;
+    const t = Array.isArray(raw) ? raw[0] : raw;
+    if (t?.id) {
+      clubBySeason.set(r.season, {
+        id: t.id,
+        name: t.name,
+        logo_url: t.logo_url ?? null,
+      });
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f1f5f9_0%,#f8fafc_12rem,#f1f5f9_100%)]">

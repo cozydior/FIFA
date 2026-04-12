@@ -62,14 +62,45 @@ export function transferInsBySeason(rows: PlayerTransferTxRow[]): Map<string, Te
   return m;
 }
 
+/**
+ * Each "release" in season R is logged on the club they left; attribute that club to the latest
+ * stat season S with S < R (e.g. released at start of S2 → still shows club for S1 rows).
+ */
+function clubBySeasonFromReleases(
+  statSeasons: string[],
+  releaseRows: PlayerTransferTxRow[],
+): Map<string, TeamMini> {
+  const sortedAsc = [...new Set(statSeasons)].sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true }),
+  );
+  const out = new Map<string, TeamMini>();
+  for (const r of releaseRows) {
+    if (r.category !== "release") continue;
+    const t = Array.isArray(r.teams) ? r.teams[0] : r.teams;
+    if (!t?.id) continue;
+    const R = r.season_label;
+    let best: string | null = null;
+    for (const s of sortedAsc) {
+      if (s.localeCompare(R, undefined, { numeric: true }) < 0) best = s;
+    }
+    if (best && !out.has(best)) {
+      out.set(best, { id: t.id, name: t.name, logo_url: t.logo_url });
+    }
+  }
+  return out;
+}
+
 /** Forward-fill club across seasons (sorted ascending by label). */
 export function seasonToClubMap(
   statSeasons: string[],
   insBySeason: Map<string, TeamMini>,
   currentSeason: string | null,
   currentTeam: TeamMini | null,
+  releaseRows?: PlayerTransferTxRow[],
 ): Map<string, TeamMini | null> {
-  const sorted = [...new Set(statSeasons)].sort((a, b) => a.localeCompare(b));
+  const sorted = [...new Set(statSeasons)].sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true }),
+  );
   let last: TeamMini | null = null;
   const out = new Map<string, TeamMini | null>();
   for (const s of sorted) {
@@ -80,6 +111,12 @@ export function seasonToClubMap(
   if (currentSeason && currentTeam) {
     const existing = out.get(currentSeason);
     if (!existing) out.set(currentSeason, currentTeam);
+  }
+  const fromRelease = releaseRows?.length
+    ? clubBySeasonFromReleases(statSeasons, releaseRows)
+    : new Map<string, TeamMini>();
+  for (const [season, club] of fromRelease) {
+    if (!out.get(season)) out.set(season, club);
   }
   return out;
 }

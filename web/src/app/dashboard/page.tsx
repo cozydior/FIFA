@@ -1000,7 +1000,7 @@ export default async function DashboardPage({
                             </span>
                           </div>
                           <p className="mt-2 text-slate-600">
-                            Tiebreak rules (league): points → GF → saves → H2H → H2H vs 3rd team → coin toss.
+                            Tiebreak rules (league): points → GD → saves → H2H → H2H vs 3rd team → coin toss.
                           </p>
                         </div>
 
@@ -1316,7 +1316,7 @@ export default async function DashboardPage({
                             : "World Cup"}
                       </h3>
                       <p className="mt-1 text-xs text-slate-500">
-                        Tiebreak rules (tournament): points → GF → H2H → saves → H2H vs 3rd team → coin toss.
+                        Tiebreak rules (tournament): points → GD → H2H → saves → H2H vs 3rd team → coin toss.
                       </p>
                       <p className="mt-2 text-xs text-slate-600">
                         <span className="inline-flex overflow-hidden rounded-md border border-sky-200 bg-sky-50">

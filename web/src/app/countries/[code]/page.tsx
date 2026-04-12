@@ -26,7 +26,8 @@ import { TrophyTitleStars } from "@/components/TrophyTitleStars";
 import { HonourCabinetChips } from "@/components/HonourCabinetCompact";
 import { sortCabinetGroups } from "@/lib/honourDisplayOrder";
 
-export const revalidate = 60;
+/** Always resolve national team from DB on each request (avoids stale cached pages showing no NT). */
+export const dynamic = "force-dynamic";
 
 const CALLOUP_ORDER = ["ST1", "ST2", "GK1"] as const;
 
@@ -59,18 +60,46 @@ export default async function CountryPage({
   const currentSeason = await getCurrentSeasonLabel();
   const season = seasonFromUrl.trim() || currentSeason || "";
 
-  const { data: country } = await supabase
+  const { data: country, error: countryError } = await supabase
     .from("countries")
     .select("id, code, name, flag_emoji")
     .eq("code", code.toUpperCase())
     .maybeSingle();
+  if (countryError) {
+    console.error("[countries/[code]] countries", countryError.message);
+  }
   if (!country) notFound();
 
-  const { data: nt } = await supabase
+  // Do not use .maybeSingle() here: duplicate rows for one country_id → PGRST116 and data=null.
+  // Some DBs have not applied the migration that adds national_teams.trophies — retry without it.
+  const ntFull = await supabase
     .from("national_teams")
     .select("id, name, confederation, flag_emoji, trophies")
     .eq("country_id", country.id)
-    .maybeSingle();
+    .limit(1);
+  const ntErrMsg = ntFull.error?.message ?? "";
+  const ntSlim =
+    ntFull.error && (ntErrMsg.includes("trophies") || ntErrMsg.includes("does not exist")) ?
+      await supabase
+        .from("national_teams")
+        .select("id, name, confederation, flag_emoji")
+        .eq("country_id", country.id)
+        .limit(1)
+    : null;
+  const ntResolved = ntSlim ?? ntFull;
+  if (ntResolved.error) {
+    console.error("[countries/[code]] national_teams", ntResolved.error.message);
+  }
+  const rawNt = ntResolved.data?.[0];
+  const nt = rawNt
+    ? {
+        id: rawNt.id as string,
+        name: rawNt.name as string,
+        confederation: rawNt.confederation as string,
+        flag_emoji: rawNt.flag_emoji as string | null,
+        trophies: (rawNt as { trophies?: unknown }).trophies ?? [],
+      }
+    : null;
 
   const { data: seasons } = await supabase
     .from("seasons")
@@ -449,10 +478,6 @@ export default async function CountryPage({
               <Trophy className="h-4 w-4 text-amber-500" />
               International honours
             </h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Add titles in <strong>Admin → Cups &amp; intl → Edit national team</strong> (same trophy
-              library as clubs). Stars next to the country name count World Cup entries here.
-            </p>
             {ntCabinet.length === 0 ?
               <p className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white/80 px-4 py-6 text-center text-sm text-slate-500">
                 No silverware on file yet — use Admin to record honours.

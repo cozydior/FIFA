@@ -30,6 +30,7 @@ import {
 import { parsePlayerNameFromTransferNote } from "@/lib/transferNotes";
 import { formatMoneyPounds } from "@/lib/formatMoney";
 import { fotMobBadgeClass } from "@/lib/fotMobBadge";
+import { compareSeasonLabelsDesc } from "@/lib/seasonLabelSort";
 import { CompetitionBrandLogo } from "@/components/CompetitionBrandLogo";
 import { formatInternationalCompetitionLabel } from "@/lib/intlCompetitionLabels";
 
@@ -127,7 +128,9 @@ export default async function PlayerPage({
       }
       return res;
     });
-  const statsRows = (statsRowsRaw ?? []) as PlayerLeagueStatsRow[];
+  const statsRows = [...(statsRowsRaw ?? [])].sort((a, b) =>
+    compareSeasonLabelsDesc(a.season, b.season),
+  ) as PlayerLeagueStatsRow[];
 
   const intlPrimary = await supabase
     .from("player_international_stats")
@@ -157,6 +160,11 @@ export default async function PlayerPage({
       .order("season_label", { ascending: false });
     intlRows = (fb.data ?? []) as IntlStatRow[];
   }
+  intlRows = [...intlRows].sort((a, b) => {
+    const d = compareSeasonLabelsDesc(a.season_label, b.season_label);
+    if (d !== 0) return d;
+    return a.competition_slug.localeCompare(b.competition_slug);
+  });
 
   const { data: awardRows } = await supabase
     .from("season_player_awards")
@@ -247,6 +255,9 @@ export default async function PlayerPage({
   );
   const intlShotsDisplay =
     player.role === "GK" ? intlShotsFacedTotal : intlShotsTakenTotal;
+
+  const careerGoalsAll = careerGoals + intlGoals;
+  const careerSavesAll = careerSaves + intlSaves;
 
   const teamLogo = (team as { logo_url?: string } | null)?.logo_url;
 
@@ -520,16 +531,38 @@ export default async function PlayerPage({
               </p>
               <div className="mt-3 flex flex-wrap gap-6">
                 {player.role !== "GK" && (
-                  <div className="flex flex-col items-center gap-0.5">
-                    <span className="font-mono text-2xl font-black text-slate-900">{careerGoals}</span>
-                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Goals</span>
-                  </div>
+                  <>
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="font-mono text-2xl font-black text-slate-900">{careerGoals}</span>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        League goals
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="font-mono text-2xl font-black text-slate-900">{careerGoalsAll}</span>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Total goals
+                      </span>
+                      <span className="text-[0.65rem] font-medium text-slate-400">League + international</span>
+                    </div>
+                  </>
                 )}
                 {player.role !== "ST" && (
-                  <div className="flex flex-col items-center gap-0.5">
-                    <span className="font-mono text-2xl font-black text-slate-900">{careerSaves}</span>
-                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Saves</span>
-                  </div>
+                  <>
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="font-mono text-2xl font-black text-slate-900">{careerSaves}</span>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        League saves
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="font-mono text-2xl font-black text-slate-900">{careerSavesAll}</span>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Total saves
+                      </span>
+                      <span className="text-[0.65rem] font-medium text-slate-400">League + international</span>
+                    </div>
+                  </>
                 )}
               </div>
             </div>
@@ -737,7 +770,6 @@ export default async function PlayerPage({
                 <tr className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                   <th className="px-4 py-2">Season</th>
                   <th className="px-4 py-2">Competition</th>
-                  <th className="px-4 py-2 text-right">Caps</th>
                   <th className="px-4 py-2 text-right">Shots</th>
                   {player.role !== "GK" ?
                     <th className="px-4 py-2 text-right">Goals</th>
@@ -767,7 +799,6 @@ export default async function PlayerPage({
                         </span>
                       </span>
                     </td>
-                    <td className="px-4 py-2 text-right font-mono">{r.caps ?? 0}</td>
                     <td className="px-4 py-2 text-right font-mono">
                       {player.role === "GK" ?
                         Number(r.shots_faced ?? 0)

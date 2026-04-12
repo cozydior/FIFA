@@ -38,6 +38,7 @@ export function HonourCabinetChips({
     <div className="flex flex-wrap gap-2.5">
       {groups.map(({ entry: tr, seasons }, i) => {
         const { label, iconUrl } = resolveTrophyDisplay(tr, defMap);
+        const winCount = seasons.length;
         const key = `${label}-${i}-${seasons.map((s) => `${s.season}-${s.won_with}`).join(",")}`;
         return (
           <div
@@ -48,7 +49,12 @@ export function HonourCabinetChips({
               <TrophyIconDisplay iconUrl={iconUrl} />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-[0.8125rem] font-bold leading-tight text-slate-900 sm:text-sm">{label}</p>
+              <p className="flex flex-wrap items-baseline gap-x-1.5 text-[0.8125rem] font-bold leading-tight text-slate-900 sm:text-sm">
+                <span>{label}</span>
+                {winCount > 1 ?
+                  <span className="font-mono text-xs font-black tabular-nums text-slate-500">×{winCount}</span>
+                : null}
+              </p>
               <ul className="mt-1 space-y-0.5 text-[0.8125rem] leading-snug text-slate-600 sm:text-sm">
                 {seasons.map((sd) => {
                   const wwFlag = sd.won_with ? wonWithFlagMap?.get(sd.won_with) : undefined;

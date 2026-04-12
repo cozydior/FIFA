@@ -6,7 +6,6 @@ import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import {
   Check,
-  Globe2,
   History,
   Minus,
   TrendingUp,
@@ -100,11 +99,6 @@ export default async function CountryPage({
         trophies: (rawNt as { trophies?: unknown }).trophies ?? [],
       }
     : null;
-
-  const { data: seasons } = await supabase
-    .from("seasons")
-    .select("label")
-    .order("created_at", { ascending: false });
 
   const { data: callupRows } =
     nt && season.trim() ?
@@ -231,10 +225,20 @@ export default async function CountryPage({
     if (oppIds.length > 0) {
       const { data: opps } = await supabase
         .from("national_teams")
-        .select("id, name, flag_emoji")
+        .select("id, name, flag_emoji, countries(code, flag_emoji)")
         .in("id", oppIds);
       for (const o of opps ?? []) {
-        intlFormOpp.set(o.id, { name: o.name, flag_emoji: o.flag_emoji as string | null });
+        const c = o.countries as
+          | { code?: string; flag_emoji?: string | null }
+          | { code?: string; flag_emoji?: string | null }[]
+          | null;
+        const country = Array.isArray(c) ? c[0] ?? null : c;
+        const code = typeof country?.code === "string" ? country.code : "";
+        const displayFlag =
+          (country?.flag_emoji as string | null) ??
+          (o.flag_emoji as string | null) ??
+          (code ? countryCodeToFlagEmoji(code) : null);
+        intlFormOpp.set(o.id, { name: o.name, flag_emoji: displayFlag });
       }
     }
   }
@@ -308,50 +312,6 @@ export default async function CountryPage({
                 </p>
               </div>
             )}
-          </div>
-
-          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-600">
-            <span>
-              Season{" "}
-              <span className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-slate-800">
-                {season || "—"}
-              </span>
-            </span>
-            <form
-              action={`/countries/${code.toLowerCase()}`}
-              className="flex items-center gap-2"
-            >
-              <select
-                name="season"
-                defaultValue={season}
-                className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm"
-              >
-                {(seasons ?? []).map((s) => (
-                  <option key={s.label} value={s.label}>
-                    {s.label}
-                  </option>
-                ))}
-                {!seasons?.some((s) => s.label === season) && season && (
-                  <option value={season}>{season}</option>
-                )}
-              </select>
-              <button
-                type="submit"
-                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-sm font-semibold"
-              >
-                Go
-              </button>
-            </form>
-          </div>
-
-          <div className="mt-5">
-            <Link
-              href="/competitions/international"
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 transition hover:border-emerald-300 hover:bg-emerald-50/80"
-            >
-              <Globe2 className="h-4 w-4 text-emerald-700" />
-              International tournaments hub
-            </Link>
           </div>
         </header>
 

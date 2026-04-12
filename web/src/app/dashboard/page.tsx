@@ -24,6 +24,7 @@ import { cupNameForCountry, cupLogoForCountry } from "@/lib/countryCups";
 import { fetchSeasonSavedMatchLeaderboards } from "@/lib/seasonLeaderboards";
 import type { DashboardUpcomingClub } from "@/lib/dashboardData";
 import { formatMoneyPounds } from "@/lib/formatMoney";
+import { formatLeagueNameForDisplay } from "@/lib/trophyCabinet";
 import { getSimPreviewTestMode } from "@/lib/appSettings";
 import { InternationalTournamentActionBar } from "@/components/InternationalTournamentActionBar";
 import { ChampionsLeagueTournamentBoard } from "@/components/ChampionsLeagueTournamentBoard";
@@ -739,7 +740,9 @@ export default async function DashboardPage({
                               className="h-8 w-8 shrink-0 rounded-lg border border-slate-200/80 bg-white object-contain p-0.5 shadow-sm"
                             />
                           : null}
-                          <span className="min-w-0 truncate">{block.leagueName}</span>
+                          <span className="min-w-0 truncate">
+                            {formatLeagueNameForDisplay(block.leagueName)}
+                          </span>
                           <span className="shrink-0 rounded-md bg-slate-200/80 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-slate-700">
                             {block.division}
                           </span>
@@ -911,7 +914,7 @@ export default async function DashboardPage({
                                 className="h-8 w-8 shrink-0 rounded-lg border border-slate-200/80 bg-white object-contain p-0.5 shadow-sm"
                               />
                             ) : null}
-                            <span className="truncate">{t.leagueName}</span>
+                            <span className="truncate">{formatLeagueNameForDisplay(t.leagueName)}</span>
                           </span>
                           <span className="shrink-0 rounded-md bg-slate-200/80 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-slate-700">
                             {t.division}

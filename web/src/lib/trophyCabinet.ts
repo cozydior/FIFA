@@ -31,16 +31,31 @@ export function definitionsBySlug(
   return new Map(defs.map((d) => [d.slug, d]));
 }
 
+/**
+ * Shortens seeded league naming: "EFL Championship" / "EFL Championship Title" →
+ * "Championship" / "Championship Title" respectively.
+ */
+export function formatLeagueNameForDisplay(name: string | undefined | null): string {
+  if (name == null) return "";
+  return name.trim().replace(/\bEFL Championship\b/gi, "Championship");
+}
+
+/** Shorter label for honour lines (won_with), e.g. league names under a season. */
+export function formatHonourWonWithDisplay(wonWith: string | undefined | null): string {
+  return formatLeagueNameForDisplay(wonWith);
+}
+
 /** Resolved label + icon for display (entry override wins for icon). */
 export function resolveTrophyDisplay(
   entry: TrophyCabinetEntry,
   defs: Map<string, TrophyDefinitionRow>,
 ): { label: string; iconUrl: string | null } {
   const fromCat = entry.trophy_slug ? defs.get(entry.trophy_slug) : undefined;
-  const label =
+  const rawLabel =
     (fromCat?.name && entry.trophy_slug ? fromCat.name : null) ??
     (typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : null) ??
     "Trophy";
+  const label = formatLeagueNameForDisplay(rawLabel);
   const iconUrl =
     (typeof entry.icon_url === "string" && entry.icon_url.trim() ? entry.icon_url.trim() : null) ??
     fromCat?.icon_url ??

@@ -6,6 +6,7 @@ import {
   REGIONAL_CUP_SF_WEEK,
   type SeasonMasterRow,
 } from "@/lib/seasonStructure";
+import { formatLeagueNameForDisplay } from "@/lib/trophyCabinet";
 
 export const revalidate = 30;
 
@@ -98,7 +99,7 @@ export default async function SeasonMasterPage() {
                         League
                       </span>
                       <span className="font-bold text-slate-900">
-                        {row.leagueName}
+                        {formatLeagueNameForDisplay(row.leagueName)}
                       </span>
                       <span className="text-slate-400">·</span>
                       <span className="font-mono text-xs text-slate-600">

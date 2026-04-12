@@ -20,6 +20,8 @@ import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
 import { dashboardDomesticLeagueUrl } from "@/lib/dashboardLinks";
 import {
   definitionsBySlug,
+  formatHonourWonWithDisplay,
+  formatLeagueNameForDisplay,
   groupTrophyCabinetEntries,
   parseTrophyList,
   resolveTrophyDisplay,
@@ -91,6 +93,25 @@ function resultLetter(
   if (gf > ga) return "W";
   if (gf < ga) return "L";
   return "D";
+}
+
+function financeCategoryHeading(category: string): string {
+  switch (category) {
+    case "champions_league":
+      return "Champions League";
+    case "league":
+      return "League";
+    case "regional_cup":
+      return "Domestic cup";
+    case "promotion":
+      return "Promotion";
+    case "wages":
+      return "Wages";
+    case "match_fee":
+      return "Match fee";
+    default:
+      return "Other";
+  }
 }
 
 export default async function TeamPage({
@@ -203,6 +224,22 @@ export default async function TeamPage({
     .in("category", ["transfer_in", "transfer_out", "release", "free_agent_pickup"])
     .order("created_at", { ascending: false })
     .limit(60);
+
+  const { data: financeTx } = await supabase
+    .from("team_transactions")
+    .select("id, amount, category, note, created_at, season_label")
+    .eq("team_id", id)
+    .in("category", [
+      "champions_league",
+      "league",
+      "regional_cup",
+      "promotion",
+      "wages",
+      "match_fee",
+      "other",
+    ])
+    .order("created_at", { ascending: false })
+    .limit(120);
 
   const { data: allTeamsLookup } = await supabase
     .from("teams")
@@ -481,16 +518,18 @@ export default async function TeamPage({
                     href={leagueDashUrl}
                     className="font-semibold text-emerald-900 hover:underline"
                   >
-                    {league.name}
+                    {formatLeagueNameForDisplay(league.name)}
                   </Link>
                 : leagueCountryCode ?
                   <Link
                     href={`/countries/${leagueCountryCode}`}
                     className="font-semibold text-slate-800 hover:text-emerald-800 hover:underline"
                   >
-                    {league.name}
+                    {formatLeagueNameForDisplay(league.name)}
                   </Link>
-                : <span className="font-semibold text-slate-800">{league.name}</span>}
+                : <span className="font-semibold text-slate-800">
+                    {formatLeagueNameForDisplay(league.name)}
+                  </span>}
                 {" "}
                 ·{" "}
                 {leagueCountryCode ?
@@ -621,7 +660,7 @@ export default async function TeamPage({
                             />
                           : null}
                           <span className="min-w-0 font-semibold text-slate-900">
-                            {r.leagueName}{" "}
+                            {formatLeagueNameForDisplay(r.leagueName)}{" "}
                             <span className="font-normal text-slate-600">{r.division}</span>
                           </span>
                         </div>
@@ -713,7 +752,10 @@ export default async function TeamPage({
                           <li key={`${sd.season}-${sd.won_with ?? ""}`}>
                             <span className="font-semibold text-slate-700">{sd.season}</span>
                             {sd.won_with ?
-                              <span className="text-slate-600"> · {sd.won_with}</span>
+                              <span className="text-slate-600">
+                                {" "}
+                                · {formatHonourWonWithDisplay(sd.won_with)}
+                              </span>
                             : null}
                           </li>
                         ))}
@@ -1063,83 +1105,162 @@ export default async function TeamPage({
       )}
 
       <section className="mt-10">
-        <h2 className="mb-4 text-xs font-bold uppercase tracking-widest text-slate-500">
+        <h2 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-500">
           Transfer history
         </h2>
-        {(transferTx ?? []).length === 0 ?
-          <p className="rounded-xl border border-dashed border-slate-300 bg-white/80 px-4 py-6 text-center text-sm text-slate-500">
-            No transfers recorded yet. Fees appear here when you complete moves in Admin.
-          </p>
-        : <ul className="space-y-2">
-            {(transferTx ?? []).map((tx) => {
-              const { label, colour } = txCategoryDisplay(tx.category);
-              const isIncoming = tx.category === "transfer_in" || tx.category === "free_agent_pickup";
-              const pname = parsePlayerNameFromTransferNote(tx.note);
-              const pid = pname ? playerIdByName.get(pname) : undefined;
-              const ppic = pname ? playerPicByName.get(pname) : undefined;
-              const buyerName = parseBuyerClubNameFromSaleNote(tx.note);
-              const counter =
-                tx.category === "transfer_out" && buyerName ?
-                  teamByLowerName.get(buyerName.toLowerCase())
-                : null;
-              const labelColour =
-                colour === "green" ? "font-semibold text-emerald-800"
-                : colour === "amber" ? "font-semibold text-amber-900"
-                : colour === "red" ? "font-semibold text-rose-700"
-                : "font-semibold text-slate-600";
-              return (
-                <li
-                  key={tx.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm"
-                >
-                  <span className="flex min-w-0 flex-wrap items-center gap-2">
-                    {counter?.logo_url ?
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={counter.logo_url}
-                        alt=""
-                        className="h-8 w-8 shrink-0 rounded-md object-contain"
-                      />
-                    : isIncoming && team.logo_url ?
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={team.logo_url}
-                        alt=""
-                        className="h-8 w-8 shrink-0 rounded-md object-contain opacity-90"
-                      />
-                    : null}
-                    {pname ?
-                      <PlayerAvatar name={pname} profilePicUrl={ppic ?? null} sizeClassName="h-8 w-8" />
-                    : null}
-                    <span className={labelColour}>{label}</span>
-                    <span className="text-slate-700">
-                      {pname ?
-                        pid ?
-                          <Link href={`/player/${pid}`} className="font-bold hover:underline">
-                            {pname}
-                          </Link>
-                        : <span className="font-bold">{pname}</span>
-                      : (tx.note ?? tx.category)}
-                    </span>
-                    {counter ?
-                      <span className="text-xs text-slate-500">→ {counter.name}</span>
-                    : null}
-                  </span>
-                  <span className="font-mono text-xs text-slate-500">{tx.season_label}</span>
-                  <span
-                    className={
-                      Number(tx.amount) <= 0 ?
-                        "font-mono font-bold text-red-700"
-                      : "font-mono font-bold text-emerald-700"
-                    }
+        <p className="mb-3 text-sm text-slate-600">
+          Player moves and fees from Admin transfers, sales, releases, and free-agent pickups.
+        </p>
+        <details className="group rounded-xl border border-slate-200 bg-white shadow-sm open:shadow-md">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
+            <span>
+              {(transferTx ?? []).length === 0 ?
+                "No transfers recorded"
+              : `Browse ${(transferTx ?? []).length} transfer${(transferTx ?? []).length === 1 ? "" : "s"}`}
+            </span>
+            <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
+          </summary>
+          {(transferTx ?? []).length === 0 ?
+            <p className="border-t border-slate-100 px-4 py-6 text-center text-sm text-slate-500">
+              No transfers recorded yet. Fees appear here when you complete moves in Admin.
+            </p>
+          : <ul className="space-y-0 border-t border-slate-100">
+              {(transferTx ?? []).map((tx) => {
+                const { label, colour } = txCategoryDisplay(tx.category);
+                const isIncoming = tx.category === "transfer_in" || tx.category === "free_agent_pickup";
+                const pname = parsePlayerNameFromTransferNote(tx.note);
+                const pid = pname ? playerIdByName.get(pname) : undefined;
+                const ppic = pname ? playerPicByName.get(pname) : undefined;
+                const buyerName = parseBuyerClubNameFromSaleNote(tx.note);
+                const counter =
+                  tx.category === "transfer_out" && buyerName ?
+                    teamByLowerName.get(buyerName.toLowerCase())
+                  : null;
+                const labelColour =
+                  colour === "green" ? "font-semibold text-emerald-800"
+                  : colour === "amber" ? "font-semibold text-amber-900"
+                  : colour === "red" ? "font-semibold text-rose-700"
+                  : "font-semibold text-slate-600";
+                return (
+                  <li
+                    key={tx.id}
+                    className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 text-sm transition last:border-b-0 hover:bg-emerald-50/40"
                   >
-                    {formatMoneyPounds(Number(Math.abs(tx.amount)))}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        }
+                    <span className="flex min-w-0 flex-wrap items-center gap-2">
+                      {counter?.logo_url ?
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={counter.logo_url}
+                          alt=""
+                          className="h-8 w-8 shrink-0 rounded-md object-contain"
+                        />
+                      : isIncoming && team.logo_url ?
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={team.logo_url}
+                          alt=""
+                          className="h-8 w-8 shrink-0 rounded-md object-contain opacity-90"
+                        />
+                      : null}
+                      {pname ?
+                        <PlayerAvatar name={pname} profilePicUrl={ppic ?? null} sizeClassName="h-8 w-8" />
+                      : null}
+                      <span className={labelColour}>{label}</span>
+                      <span className="text-slate-700">
+                        {pname ?
+                          pid ?
+                            <Link href={`/player/${pid}`} className="font-bold hover:underline">
+                              {pname}
+                            </Link>
+                          : <span className="font-bold">{pname}</span>
+                        : (tx.note ?? tx.category)}
+                      </span>
+                      {counter ?
+                        <span className="text-xs text-slate-500">→ {counter.name}</span>
+                      : null}
+                    </span>
+                    <span className="font-mono text-xs text-slate-500">{tx.season_label}</span>
+                    <span
+                      className={
+                        Number(tx.amount) <= 0 ?
+                          "font-mono font-bold text-red-700"
+                        : "font-mono font-bold text-emerald-700"
+                      }
+                    >
+                      {formatMoneyPounds(Number(Math.abs(tx.amount)))}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          }
+        </details>
+      </section>
+
+      <section className="mt-10">
+        <h2 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-500">
+          Finances
+        </h2>
+        <p className="mb-3 text-sm text-slate-600">
+          Prize money from league finishes, domestic cups, and Champions League knockouts, promotion bonuses, season
+          wages, and other cash flows recorded when you run season end in Admin.
+        </p>
+        <details className="group rounded-xl border border-slate-200 bg-white shadow-sm open:shadow-md">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
+            <span>
+              {(financeTx ?? []).length === 0 ?
+                "No finance entries yet"
+              : `Browse ${(financeTx ?? []).length} finance entr${(financeTx ?? []).length === 1 ? "y" : "ies"}`}
+            </span>
+            <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
+          </summary>
+          {(financeTx ?? []).length === 0 ?
+            <p className="border-t border-slate-100 px-4 py-6 text-center text-sm text-slate-500">
+              Nothing logged yet. After you process season end (league prizes, cup finals, CL payouts, wages), entries
+              appear here with amounts and notes.
+            </p>
+          : <ul className="space-y-0 border-t border-slate-100">
+              {(financeTx ?? []).map((tx) => {
+                const heading = financeCategoryHeading(tx.category);
+                const amt = Number(tx.amount);
+                const tagBg =
+                  tx.category === "wages" ? "bg-rose-100 text-rose-900"
+                  : tx.category === "champions_league" ? "bg-indigo-100 text-indigo-900"
+                  : tx.category === "league" ? "bg-emerald-100 text-emerald-900"
+                  : tx.category === "regional_cup" ? "bg-amber-100 text-amber-900"
+                  : tx.category === "promotion" ? "bg-violet-100 text-violet-900"
+                  : "bg-slate-100 text-slate-800";
+                return (
+                  <li
+                    key={tx.id}
+                    className="flex flex-col gap-1 border-b border-slate-100 px-4 py-3 text-sm transition last:border-b-0 hover:bg-slate-50/80 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3"
+                  >
+                    <span className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+                      <span
+                        className={`inline-flex w-fit shrink-0 rounded-md px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide ${tagBg}`}
+                      >
+                        {heading}
+                      </span>
+                      <span className="min-w-0 text-slate-800">
+                        {tx.note?.trim() ? tx.note : heading}
+                      </span>
+                    </span>
+                    <span className="flex shrink-0 flex-wrap items-center gap-3 sm:justify-end">
+                      <span className="font-mono text-xs text-slate-500">{tx.season_label}</span>
+                      <span
+                        className={
+                          amt < 0 ? "font-mono font-bold text-red-700" : "font-mono font-bold text-emerald-700"
+                        }
+                      >
+                        {formatMoneyPounds(amt)}
+                      </span>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          }
+        </details>
       </section>
       </div>
     </div>

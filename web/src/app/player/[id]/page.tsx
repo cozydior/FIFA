@@ -6,6 +6,8 @@ import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
 import { dashboardDomesticLeagueUrl } from "@/lib/dashboardLinks";
 import {
   definitionsBySlug,
+  formatHonourWonWithDisplay,
+  formatLeagueNameForDisplay,
   groupTrophyCabinetEntries,
   parseTrophyList,
   resolveTrophyDisplay,
@@ -323,16 +325,18 @@ export default async function PlayerPage({
                       href={leagueDashboardUrl}
                       className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-emerald-900 ring-1 ring-slate-200/80 transition hover:bg-emerald-50 hover:ring-emerald-200"
                     >
-                      {league.name}
+                      {formatLeagueNameForDisplay(league.name)}
                     </Link>
                   : leagueCountryCode ?
                     <Link
                       href={`/countries/${leagueCountryCode.toLowerCase()}`}
                       className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-800 ring-1 ring-slate-200/80 transition hover:bg-emerald-50"
                     >
-                      {league.name}
+                      {formatLeagueNameForDisplay(league.name)}
                     </Link>
-                  : <span className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-800 ring-1 ring-slate-200/80">{league.name}</span>
+                  : <span className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-800 ring-1 ring-slate-200/80">
+                      {formatLeagueNameForDisplay(league.name)}
+                    </span>
                 : null}
                 {country && typeof country === "object" && "flag_emoji" in country && country.flag_emoji ?
                   leagueCountryCode ?
@@ -534,7 +538,7 @@ export default async function PlayerPage({
                                 ) : wwFlag ? (
                                   <span className="leading-none">{wwFlag}</span>
                                 ) : null}
-                                {sd.won_with}
+                                {formatHonourWonWithDisplay(sd.won_with)}
                               </span>
                             )}
                           </li>

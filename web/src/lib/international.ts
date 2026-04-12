@@ -226,6 +226,40 @@ function winnerOfKnockoutFixture(
   );
 }
 
+/**
+ * Sums `player_international_stats.saves_for_country` for call-up players, per national team,
+ * for one tournament slug (same season). Used for group-stage tiebreaks with league rules.
+ */
+export async function fetchInternationalSavesByNationalTeam(
+  supabase: SupabaseClient,
+  seasonLabel: string,
+  competitionSlug: string,
+): Promise<Record<string, number>> {
+  const [{ data: callups }, { data: statRows }] = await Promise.all([
+    supabase
+      .from("national_team_callups")
+      .select("national_team_id, player_id")
+      .eq("season_label", seasonLabel),
+    supabase
+      .from("player_international_stats")
+      .select("player_id, saves_for_country")
+      .eq("season_label", seasonLabel)
+      .eq("competition_slug", competitionSlug),
+  ]);
+
+  const savesByPlayer = new Map<string, number>();
+  for (const s of statRows ?? []) {
+    savesByPlayer.set(s.player_id, Number(s.saves_for_country ?? 0));
+  }
+
+  const byNt: Record<string, number> = {};
+  for (const c of callups ?? []) {
+    const sv = savesByPlayer.get(c.player_id) ?? 0;
+    byNt[c.national_team_id] = (byNt[c.national_team_id] ?? 0) + sv;
+  }
+  return byNt;
+}
+
 export function computeInternationalTable(
   teamIds: string[],
   fixtures: {
@@ -235,6 +269,7 @@ export function computeInternationalTable(
     away_score: number | null;
     status: string;
   }[],
+  options?: { teamSaves?: Record<string, number> },
 ) {
   const mapped: FixtureRow[] = fixtures.map((f) => ({
     league_id: null,
@@ -244,10 +279,18 @@ export function computeInternationalTable(
     away_score: f.away_score,
     status: f.status,
   }));
-  const rows = computeStandings(teamIds, mapped, { mode: "tournament" });
+  const rows = computeStandings(teamIds, mapped, {
+    mode: "tournament",
+    teamSaves: options?.teamSaves,
+  });
   return rows.map((r) => ({
     teamId: r.teamId,
     played: r.played,
+    won: r.won,
+    drawn: r.drawn,
+    lost: r.lost,
+    goalsFor: r.goalsFor,
+    goalsAgainst: r.goalsAgainst,
     points: r.points,
     gd: r.goalsFor - r.goalsAgainst,
     gf: r.goalsFor,
@@ -288,12 +331,17 @@ export async function progressInternationalCompetition(
   const hasFinal = all.some((f) => f.stage === "F");
 
   if (groupDone && !hasSf) {
+    const intlSaves = await fetchInternationalSavesByNationalTeam(
+      supabase,
+      seasonLabel,
+      slug,
+    );
     const groups = ["A", "B"] as const;
     const winners: Record<string, string[]> = {};
     for (const g of groups) {
       const gf = groupFixtures.filter((f) => f.group_name === g);
       const ids = [...new Set(gf.flatMap((f) => [f.home_national_team_id, f.away_national_team_id]))];
-      const table = computeInternationalTable(ids, gf as any);
+      const table = computeInternationalTable(ids, gf as any, { teamSaves: intlSaves });
       winners[g] = table.slice(0, 2).map((r) => r.teamId);
     }
     if (winners.A?.length === 2 && winners.B?.length === 2) {

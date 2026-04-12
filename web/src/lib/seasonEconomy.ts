@@ -78,6 +78,32 @@ export async function fetchLeagueStandingsForSeasonEnd(
 }
 
 /**
+ * Season goalkeeper saves aggregated by club `team_id` (same source as domestic league tables / CL group UI).
+ */
+export async function fetchClubSeasonSavesByTeamIds(
+  supabase: SupabaseClient,
+  seasonLabel: string,
+  teamIds: string[],
+): Promise<Record<string, number>> {
+  const ids = [...new Set(teamIds)].filter(Boolean);
+  if (ids.length === 0) return {};
+
+  const [{ data: players }, { data: statRows }] = await Promise.all([
+    supabase.from("players").select("id, team_id").in("team_id", ids),
+    supabase.from("stats").select("player_id, saves").eq("season", seasonLabel),
+  ]);
+
+  const teamByPlayer = new Map((players ?? []).map((p) => [p.id, p.team_id]));
+  const acc: Record<string, number> = {};
+  for (const s of statRows ?? []) {
+    const tid = teamByPlayer.get(s.player_id);
+    if (!tid || !ids.includes(tid)) continue;
+    acc[tid] = (acc[tid] ?? 0) + Number(s.saves ?? 0);
+  }
+  return acc;
+}
+
+/**
  * League table prizes + promotion bonus. Idempotent per season via season_economy_events.
  */
 export async function applySeasonLeaguePayouts(

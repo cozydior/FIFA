@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { getSimPreviewTestMode } from "@/lib/appSettings";
+import { getSimPreviewTestMode, getTournamentsMode } from "@/lib/appSettings";
 import {
   fakeCompleteClGroupStage,
   fakeCompleteClFinal,
   fakeCompleteClSemis,
   insertClFinalFromSemis,
-  insertClKnockoutsFromGroupTables,
+  refreshClSemisFromGroupTables,
 } from "@/lib/championsLeaguePreview";
 
 export async function POST(req: Request) {
@@ -40,13 +40,23 @@ export async function POST(req: Request) {
     }
 
     const action = body.action?.trim();
+    if (action === "seed_knockouts") {
+      const tm = await getTournamentsMode();
+      if (!tm) {
+        return NextResponse.json(
+          { error: "Turn on Tournaments mode in Admin → Season to rebuild CL semis from tables." },
+          { status: 403 },
+        );
+      }
+    }
+
     switch (action) {
       case "fake_groups": {
         const out = await fakeCompleteClGroupStage(supabase, seasonLabel);
         return NextResponse.json({ ok: true, seasonLabel, ...out });
       }
       case "seed_knockouts": {
-        const out = await insertClKnockoutsFromGroupTables(supabase, seasonLabel);
+        const out = await refreshClSemisFromGroupTables(supabase, seasonLabel);
         return NextResponse.json({ ok: true, seasonLabel, ...out });
       }
       case "fake_semis": {

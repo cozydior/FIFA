@@ -4,17 +4,24 @@ import { useEffect, useState } from "react";
 
 export function ChampionsLeagueSeedControls({ seasonLabel }: { seasonLabel: string }) {
   const [previewUi, setPreviewUi] = useState(false);
+  const [tournamentsMode, setTournamentsMode] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let c = false;
-    fetch("/api/admin/sim-preview-test-mode")
-      .then((r) => r.json())
-      .then((d: { enabled?: boolean }) => {
-        if (!c) setPreviewUi(!!d.enabled);
+    Promise.all([
+      fetch("/api/admin/sim-preview-test-mode").then((r) => r.json()),
+      fetch("/api/admin/tournaments-mode").then((r) => r.json()),
+    ])
+      .then(([a, b]: [{ enabled?: boolean }, { enabled?: boolean }]) => {
+        if (!c) {
+          setPreviewUi(!!a.enabled);
+          setTournamentsMode(!!b.enabled);
+        }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {});
     return () => {
       c = true;
     };
@@ -31,10 +38,40 @@ export function ChampionsLeagueSeedControls({ seasonLabel }: { seasonLabel: stri
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed");
+      const semiNote =
+        typeof data.semisInserted === "number" && data.semisInserted > 0 ?
+          ` Semis re-seeded: ${data.semisInserted}.`
+        : typeof data.semisDeleted === "number" && data.semisDeleted > 0 && data.semisInserted === 0 ?
+          " Old knockouts cleared (finish the group stage to create semis)."
+        : "";
       setMessage(
         mode === "production" ?
-          `Seeded CL (${data.groupFixturesInserted ?? 0} group fixtures). Refreshing…`
-        : `Preview seed: ${data.groupFixturesInserted ?? 0} group fixtures. Refreshing…`,
+          `Seeded CL (${data.groupFixturesInserted ?? 0} group fixtures).${semiNote} Refreshing…`
+        : `Preview seed: ${data.groupFixturesInserted ?? 0} group fixtures.${semiNote} Refreshing…`,
+      );
+      setTimeout(() => window.location.reload(), 500);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function refreshSemis() {
+    setPending("refresh_semis");
+    setMessage(null);
+    try {
+      const res = await fetch("/api/admin/champions-league-refresh-semis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seasonLabel }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      const ins = data.inserted ?? 0;
+      const del = data.deleted ?? 0;
+      setMessage(
+        `Refresh semis: removed ${del} knockout row(s), created ${ins} semi(s). Refreshing…`,
       );
       setTimeout(() => window.location.reload(), 500);
     } catch (e) {
@@ -66,34 +103,56 @@ export function ChampionsLeagueSeedControls({ seasonLabel }: { seasonLabel: stri
 
   return (
     <div className="mt-3 space-y-3">
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={!!pending}
-          onClick={() => void seed("production")}
-          className="rounded-lg bg-sky-700 px-3 py-2 text-xs font-bold text-white hover:bg-sky-800 disabled:opacity-50"
-        >
-          {pending === "production" ? "Seeding…" : "Seed CL (season rules)"}
-        </button>
-        {previewUi ?
-          <button
-            type="button"
-            disabled={!!pending}
-            onClick={() => void seed("preview")}
-            className="rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
-          >
-            {pending === "preview" ? "Seeding…" : "Preview seed (bypass gates)"}
-          </button>
-        : null}
-      </div>
-      <p className="text-xs text-slate-600">
-        <strong>Season rules</strong> requires all league fixtures finished. <strong>Preview seed</strong> only appears when
-        Admin → Season → <strong>Sim preview test mode</strong> is on.
-      </p>
+      {tournamentsMode ?
+        <>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={!!pending}
+              onClick={() => void seed("production")}
+              className="rounded-lg bg-sky-700 px-3 py-2 text-xs font-bold text-white hover:bg-sky-800 disabled:opacity-50"
+            >
+              {pending === "production" ? "Seeding…" : "Seed CL (season rules)"}
+            </button>
+            {previewUi ?
+              <button
+                type="button"
+                disabled={!!pending}
+                onClick={() => void seed("preview")}
+                className="rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
+              >
+                {pending === "preview" ? "Seeding…" : "Preview seed (bypass gates)"}
+              </button>
+            : null}
+            <button
+              type="button"
+              disabled={!!pending}
+              onClick={() => void refreshSemis()}
+              className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-950 hover:bg-indigo-100 disabled:opacity-50"
+            >
+              {pending === "refresh_semis" ? "Refreshing…" : "Refresh semis"}
+            </button>
+          </div>
+          <p className="text-xs text-slate-600">
+            <strong>Season rules</strong> requires all league fixtures finished. <strong>Preview seed</strong> also needs
+            Admin → <strong>Sim preview test mode</strong>.{" "}
+            <strong>Refresh semis</strong> deletes CL semi + final rows for this season and rebuilds semis from group
+            tables when the group stage is fully complete.
+          </p>
+        </>
+      : (
+        <p className="text-xs text-slate-600">
+          <strong>Tournament seed controls are hidden.</strong> Turn on{" "}
+          <strong>Tournaments mode</strong> in Admin → Season to show Seed CL, Preview seed, and Refresh semis.
+        </p>
+      )}
 
       {previewUi ?
         <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50/50 px-3 py-2">
           <p className="text-[0.65rem] font-bold uppercase tracking-wide text-amber-950">Preview: jump through stages</p>
+          <p className="mt-1 text-[0.65rem] text-amber-950/90">
+            Requires Sim preview test mode. Does not require Tournaments mode.
+          </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {(
               [

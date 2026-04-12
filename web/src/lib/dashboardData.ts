@@ -32,6 +32,8 @@ export type DashboardUpcomingClub = {
   leagueCountry: string;
   /** League division for sorting (D1 / D2 / …) */
   leagueDivision: string;
+  /** Champions League: order group fixtures before knockouts within the same week */
+  clRoundOrder?: number;
 };
 
 export type DashboardUpcomingInternational = {
@@ -204,7 +206,37 @@ export async function getDashboardSummary(seasonOverride?: string) {
     return 40;
   }
 
-  const rawClub = (fixturesRaw ?? []).filter((f) => f.status === "scheduled");
+  function championsLeagueRoundOrder(cupRound: string | null | undefined): number {
+    const r = cupRound ?? "";
+    if (r === "CL_GA") return 0;
+    if (r === "CL_GB") return 1;
+    if (r === "CL_SF1") return 2;
+    if (r === "CL_SF2") return 3;
+    if (r === "CL_F") return 4;
+    return 50;
+  }
+
+  function includeScheduledClubFixture(f: {
+    status: string;
+    competition?: string | null;
+    cup_round?: string | null;
+  }): boolean {
+    if (f.status !== "scheduled") return false;
+    if ((f.competition ?? "") !== "champions_league") return true;
+    const groupFx = (fixturesRaw ?? []).filter(
+      (x) =>
+        x.competition === "champions_league" &&
+        (x.cup_round === "CL_GA" || x.cup_round === "CL_GB"),
+    );
+    if (groupFx.length === 0) return true;
+    const groupsComplete = groupFx.every((x) => x.status === "completed");
+    if (groupsComplete) return true;
+    const r = f.cup_round ?? "";
+    if (r === "CL_SF1" || r === "CL_SF2" || r === "CL_F") return false;
+    return true;
+  }
+
+  const rawClub = (fixturesRaw ?? []).filter(includeScheduledClubFixture);
   const clubUpcoming: DashboardUpcomingClub[] = rawClub
     .map((f) => {
       const home = teams?.find((t) => t.id === f.home_team_id);
@@ -237,11 +269,25 @@ export async function getDashboardSummary(seasonOverride?: string) {
         weekLabel: formatFixtureCalendarLabel(f.week, clubFixtureWeekKind(comp)),
         leagueCountry: league?.country ?? f.country ?? "",
         leagueDivision: league?.division ?? "",
+        clRoundOrder:
+          comp === "champions_league" ? championsLeagueRoundOrder(f.cup_round) : undefined,
       };
     })
     .sort((a, b) => {
       if (a.week !== b.week) return a.week - b.week;
-      return clubSortKey(a) - clubSortKey(b);
+      if (
+        a.competition === "champions_league" &&
+        b.competition === "champions_league" &&
+        a.clRoundOrder != null &&
+        b.clRoundOrder != null
+      ) {
+        const dr = a.clRoundOrder - b.clRoundOrder;
+        if (dr !== 0) return dr;
+        return a.id.localeCompare(b.id);
+      }
+      const ck = clubSortKey(a) - clubSortKey(b);
+      if (ck !== 0) return ck;
+      return a.id.localeCompare(b.id);
     });
 
   const { data: intlComps } = await supabase
@@ -254,10 +300,22 @@ export async function getDashboardSummary(seasonOverride?: string) {
   const compById = new Map((intlComps ?? []).map((c) => [c.id, c]));
 
   if (compIds.length > 0) {
+    const { data: intlAllForGate } = await supabase
+      .from("international_fixtures")
+      .select("competition_id, stage, status")
+      .in("competition_id", compIds);
+
+    function intlKnockoutsAllowed(competitionId: string): boolean {
+      const rows = intlAllForGate?.filter((x) => x.competition_id === competitionId) ?? [];
+      const groupFx = rows.filter((x) => x.stage === "group");
+      if (groupFx.length === 0) return true;
+      return groupFx.every((x) => x.status === "completed");
+    }
+
     const { data: intlFx } = await supabase
       .from("international_fixtures")
       .select(
-        "id, week, competition_id, home_national_team_id, away_national_team_id, status",
+        "id, week, competition_id, stage, home_national_team_id, away_national_team_id, status",
       )
       .in("competition_id", compIds)
       .eq("status", "scheduled")
@@ -299,29 +357,35 @@ export async function getDashboardSummary(seasonOverride?: string) {
       }),
     );
 
-    intlUpcoming = (intlFx ?? []).map((f) => {
-      const comp = compById.get(f.competition_id);
-      const slug = comp?.slug ?? "nations_league";
-      const h = ntMeta.get(f.home_national_team_id);
-      const a = ntMeta.get(f.away_national_team_id);
-      const weekKind = slug === "world_cup" ? "world_cup" : "international";
-      return {
-        kind: "international" as const,
-        id: f.id,
-        week: f.week,
-        weekLabel: formatFixtureCalendarLabel(f.week, weekKind),
-        homeNationalTeamId: f.home_national_team_id,
-        awayNationalTeamId: f.away_national_team_id,
-        homeName: h?.name ?? f.home_national_team_id,
-        awayName: a?.name ?? f.away_national_team_id,
-        homeFlag: h?.flag ?? "🏳️",
-        awayFlag: a?.flag ?? "🏳️",
-        homeCode: h?.code ?? null,
-        awayCode: a?.code ?? null,
-        competitionLabel: comp?.name ?? "International",
-        competitionSlug: comp?.slug ?? "nations_league",
-      };
-    });
+    intlUpcoming = (intlFx ?? [])
+      .filter((f) => {
+        const st = (f as { stage?: string }).stage;
+        if (!st || st === "group") return true;
+        return intlKnockoutsAllowed(f.competition_id);
+      })
+      .map((f) => {
+        const comp = compById.get(f.competition_id);
+        const slug = comp?.slug ?? "nations_league";
+        const h = ntMeta.get(f.home_national_team_id);
+        const a = ntMeta.get(f.away_national_team_id);
+        const weekKind = slug === "world_cup" ? "world_cup" : "international";
+        return {
+          kind: "international" as const,
+          id: f.id,
+          week: f.week,
+          weekLabel: formatFixtureCalendarLabel(f.week, weekKind),
+          homeNationalTeamId: f.home_national_team_id,
+          awayNationalTeamId: f.away_national_team_id,
+          homeName: h?.name ?? f.home_national_team_id,
+          awayName: a?.name ?? f.away_national_team_id,
+          homeFlag: h?.flag ?? "🏳️",
+          awayFlag: a?.flag ?? "🏳️",
+          homeCode: h?.code ?? null,
+          awayCode: a?.code ?? null,
+          competitionLabel: comp?.name ?? "International",
+          competitionSlug: comp?.slug ?? "nations_league",
+        };
+      });
   }
 
   // Club fixtures first (already sorted by league priority then week),

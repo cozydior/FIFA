@@ -7,7 +7,8 @@ import {
   championsLeagueQualifiedVia,
 } from "@/lib/seasonStructure";
 import { canSeedChampionsLeagueFixtures } from "@/lib/tournamentGates";
-import { getSimPreviewTestMode } from "@/lib/appSettings";
+import { getSimPreviewTestMode, getTournamentsMode } from "@/lib/appSettings";
+import { refreshClSemisFromGroupTables } from "@/lib/championsLeaguePreview";
 
 /**
  * Seeds CL tournament_entries + group fixtures. Production mode respects league-completion gates.
@@ -22,6 +23,14 @@ export async function POST(req: Request) {
     };
     const supabase = getSupabaseAdmin();
     const mode = body.mode === "preview" ? "preview" : "production";
+
+    const tournamentsOn = await getTournamentsMode();
+    if (!tournamentsOn) {
+      return NextResponse.json(
+        { error: "Turn on Tournaments mode in Admin → Season to seed or refresh Champions League." },
+        { status: 403 },
+      );
+    }
 
     let season: { id: string; label: string } | null = null;
     if (typeof body.seasonLabel === "string" && body.seasonLabel.trim()) {
@@ -134,11 +143,15 @@ export async function POST(req: Request) {
       cl.championsLeagueTeamIds,
     );
 
+    const semisRefresh = await refreshClSemisFromGroupTables(supabase, season.label);
+
     return NextResponse.json({
       ok: true,
       seasonLabel: season.label,
       teamIds: cl.championsLeagueTeamIds,
       groupFixturesInserted: inserted,
+      semisDeleted: semisRefresh.deleted,
+      semisInserted: semisRefresh.inserted,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Seed failed";

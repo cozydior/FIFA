@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { computeInternationalTable, progressInternationalCompetition } from "@/lib/international";
+import {
+  computeInternationalTable,
+  fetchInternationalSavesByNationalTeam,
+  progressInternationalCompetition,
+} from "@/lib/international";
 import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
 
 type Params = { params: Promise<{ slug: string }> };
@@ -50,14 +54,22 @@ export async function GET(req: Request, { params }: Params) {
 
     const teamIds = (entries ?? []).map((e) => e.national_team_id);
     const groupFixtures = (fixtures ?? []).filter((f) => f.stage === "group");
+    const intlSaves = await fetchInternationalSavesByNationalTeam(
+      supabase,
+      seasonLabel,
+      slug,
+    );
     const groups = [...new Set(groupFixtures.map((f) => f.group_name).filter(Boolean))] as string[];
     const groupTables = groups.map((g) => {
       const gf = groupFixtures.filter((f) => f.group_name === g);
       const ids = [...new Set(gf.flatMap((f) => [f.home_national_team_id, f.away_national_team_id]))];
-      const table = computeInternationalTable(ids, gf as any);
+      const table = computeInternationalTable(ids, gf as any, { teamSaves: intlSaves });
       return { group: g, table };
     });
-    const table = groups.length > 0 ? [] : computeInternationalTable(teamIds, fixtures ?? []);
+    const table =
+      groups.length > 0 ?
+        []
+      : computeInternationalTable(teamIds, fixtures ?? [], { teamSaves: intlSaves });
     const knockoutFixtures = (fixtures ?? []).filter((f) => f.stage !== "group");
     const nameById = new Map((nts ?? []).map((t) => [t.id, t]));
     const enrichedTable = table.map((r) => ({

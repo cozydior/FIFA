@@ -386,6 +386,7 @@ export default function AdminPage() {
           <>
             <SeasonMakerSection />
             <SimPreviewToggleSection />
+            <TournamentsModeToggleSection />
             <EndOfSeasonBundleSection />
             <SetMarketValuesSection />
             <SeasonAwardsSection players={players} seasons={seasons} />
@@ -740,6 +741,63 @@ function SimPreviewToggleSection() {
           {refreshMsg && <p className="mt-2 text-xs text-zinc-700">{refreshMsg}</p>}
         </div>
       )}
+    </section>
+  );
+}
+
+function TournamentsModeToggleSection() {
+  const [enabled, setEnabled] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/tournaments-mode")
+      .then((r) => r.json())
+      .then((d: { enabled?: boolean }) => setEnabled(!!d.enabled))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function save(next: boolean) {
+    setPending(true);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/admin/tournaments-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: next }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      setEnabled(!!data.enabled);
+      setMsg("Saved.");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <section className="rounded-2xl border border-sky-200/90 bg-sky-50/40 p-6 shadow-sm">
+      <h2 className="mb-2 text-lg font-semibold text-zinc-900">Tournaments mode</h2>
+      <p className="mb-3 text-sm text-zinc-600">
+        When enabled, the Matchday dashboard shows <strong>Seed CL</strong>, <strong>Preview seed</strong> (if Sim preview
+        is on), and <strong>Refresh semis</strong> for Champions League. Default is <strong>off</strong> so those actions
+        stay hidden in normal play.
+      </p>
+      <label className="flex cursor-pointer items-center gap-3 text-sm font-semibold text-zinc-800">
+        <input
+          type="checkbox"
+          className="h-4 w-4 rounded border-zinc-400"
+          checked={enabled}
+          disabled={loading || pending}
+          onChange={(e) => void save(e.target.checked)}
+        />
+        {loading ? "Loading…" : pending ? "Saving…" : "Show tournament seed / refresh controls"}
+      </label>
+      {msg && <p className="mt-2 text-sm text-zinc-700">{msg}</p>}
     </section>
   );
 }

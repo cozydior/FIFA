@@ -1,9 +1,8 @@
 /**
- * Group tables: top two advance (Nations League / Gold Cup / World Cup groups).
- * Matches domestic dashboard styling (sky = qualification path).
+ * Group tables (CL + international): top two both use sky (qualification), then zebra.
  */
 export function internationalGroupStandingRowClass(posZeroBased: number): string {
-  if (posZeroBased < 2) {
+  if (posZeroBased === 0 || posZeroBased === 1) {
     return "border-l-[5px] border-sky-600 bg-sky-50";
   }
   return posZeroBased % 2 === 0 ?

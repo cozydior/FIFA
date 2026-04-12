@@ -24,6 +24,10 @@ export type StandingRow = {
 
 export type StandingsMode = "league" | "tournament";
 
+/** Same ordering for domestic league and tournament group stages (CL + international). */
+export const LEAGUE_STYLE_TIEBREAK_BLURB =
+  "Tiebreaks: points → goal difference → saves → head-to-head → mini-league vs other tied teams → coin toss";
+
 export function computeStandings(
   teamIds: string[],
   fixtures: FixtureRow[],
@@ -102,10 +106,9 @@ export function computeStandings(
     };
   });
 
-  const mode = options?.mode ?? "league";
   const saves = options?.teamSaves ?? {};
 
-  rows.sort((x, y) => compareRows(x, y, fixtures, mode, saves));
+  rows.sort((x, y) => compareRows(x, y, fixtures, saves));
 
   return rows;
 }
@@ -114,7 +117,6 @@ function compareRows(
   a: StandingRow,
   b: StandingRow,
   fixtures: FixtureRow[],
-  mode: StandingsMode,
   saves: Record<string, number>,
 ): number {
   // 1) points
@@ -124,27 +126,14 @@ function compareRows(
   const gdB = b.goalsFor - b.goalsAgainst;
   if (gdB !== gdA) return gdB - gdA;
 
-  if (mode === "league") {
-    // 3) saves
-    const svA = saves[a.teamId] ?? 0;
-    const svB = saves[b.teamId] ?? 0;
-    if (svB !== svA) return svB - svA;
-    // 4) head-to-head
-    const h2h = headToHeadCompare(a.teamId, b.teamId, fixtures);
-    if (h2h !== 0) return h2h;
-    // 5) "h2h vs 3rd team" approximation: mini-league aggregate among tied clubs
-    const mini = miniLeagueCompare(a.teamId, b.teamId, fixtures);
-    if (mini !== 0) return mini;
-  } else {
-    // tournament: 3) h2h, 4) saves, 5) mini-league
-    const h2h = headToHeadCompare(a.teamId, b.teamId, fixtures);
-    if (h2h !== 0) return h2h;
-    const svA = saves[a.teamId] ?? 0;
-    const svB = saves[b.teamId] ?? 0;
-    if (svB !== svA) return svB - svA;
-    const mini = miniLeagueCompare(a.teamId, b.teamId, fixtures);
-    if (mini !== 0) return mini;
-  }
+  // 3) saves — 4) head-to-head — 5) mini-league (same for league + tournament groups)
+  const svA = saves[a.teamId] ?? 0;
+  const svB = saves[b.teamId] ?? 0;
+  if (svB !== svA) return svB - svA;
+  const h2h = headToHeadCompare(a.teamId, b.teamId, fixtures);
+  if (h2h !== 0) return h2h;
+  const mini = miniLeagueCompare(a.teamId, b.teamId, fixtures);
+  if (mini !== 0) return mini;
 
   // 6) coin toss (stable deterministic fallback)
   return a.teamId.localeCompare(b.teamId);

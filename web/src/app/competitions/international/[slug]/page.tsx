@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { computeInternationalTable } from "@/lib/international";
+import {
+  computeInternationalTable,
+  fetchInternationalSavesByNationalTeam,
+} from "@/lib/international";
 import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
 import { getSimPreviewTestMode } from "@/lib/appSettings";
 import { InternationalTournamentActionBar } from "@/components/InternationalTournamentActionBar";
@@ -10,7 +13,8 @@ import { CompetitionBrandLogo } from "@/components/CompetitionBrandLogo";
 import { fetchInternationalRollOfHonour } from "@/lib/competitionHistory";
 import { IntlKnockoutBracket, type IntlKoFixture } from "@/components/IntlKnockoutBracket";
 import { formatFixtureCalendarLabel } from "@/lib/calendarPhases";
-import { internationalGroupStandingRowClass } from "@/lib/internationalStandingsUi";
+import { TournamentGroupStageTable } from "@/components/TournamentGroupStageTable";
+import { LEAGUE_STYLE_TIEBREAK_BLURB } from "@/lib/standings";
 
 const TITLES: Record<string, string> = {
   nations_league: "UEFA Nations League",
@@ -108,9 +112,15 @@ export default async function InternationalCompetitionPage({
         .order("name")
     ).data ?? [];
 
+  const intlTeamSaves = await fetchInternationalSavesByNationalTeam(
+    supabase,
+    season,
+    slug,
+  );
   const table = computeInternationalTable(
     entries.map((e) => e.national_team_id),
     fixtures,
+    { teamSaves: intlTeamSaves },
   );
   const byId = new Map(
     nts.map((t) => {
@@ -127,13 +137,21 @@ export default async function InternationalCompetitionPage({
     }),
   );
   const groupFixtures = fixtures.filter((f) => (f as any).stage === "group");
+  const groupsDone =
+    groupFixtures.length === 0 ||
+    groupFixtures.every((f: any) => f.status === "completed");
   const groups = [...new Set(groupFixtures.map((f: any) => f.group_name).filter(Boolean))] as string[];
   const groupTables = groups.map((g) => {
     const gf = groupFixtures.filter((f: any) => f.group_name === g);
     const ids = [...new Set(gf.flatMap((f: any) => [f.home_national_team_id, f.away_national_team_id]))];
-    return { group: g, table: computeInternationalTable(ids, gf as any) };
+    return {
+      group: g,
+      table: computeInternationalTable(ids, gf as any, { teamSaves: intlTeamSaves }),
+    };
   });
-  const knockoutFixtures = fixtures.filter((f: any) => (f as any).stage !== "group");
+  const knockoutFixtures = fixtures.filter(
+    (f: any) => (f as any).stage !== "group" && groupsDone,
+  );
   const knockoutBracketData: IntlKoFixture[] = knockoutFixtures.map((f: any) => {
     const h = byId.get(f.home_national_team_id) as
       | { name?: string; display_flag?: string; countryCode?: string | null }
@@ -272,7 +290,7 @@ export default async function InternationalCompetitionPage({
           No competition generated for this season yet. Click “Generate competitions”.
         </p>
       ) : !honoursView ? (
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="flex flex-col gap-6">
           <section className="overflow-hidden rounded-2xl border border-slate-300/90 bg-white shadow-sm">
             <h2 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold uppercase tracking-wide text-slate-600">
               Standings
@@ -282,6 +300,9 @@ export default async function InternationalCompetitionPage({
                 <span className="w-1 shrink-0 bg-sky-600" aria-hidden />
                 <span className="px-2 py-0.5 font-semibold text-sky-950">Top two per group · Knockouts</span>
               </span>
+              <span className="mt-2 block text-[0.7rem] leading-snug text-slate-600">
+                {LEAGUE_STYLE_TIEBREAK_BLURB}
+              </span>
             </p>
             {groupTables.length > 0 ? (
               <div className="space-y-4 p-3">
@@ -290,66 +311,36 @@ export default async function InternationalCompetitionPage({
                     <div className="bg-slate-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-600">
                       Group {g.group}
                     </div>
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                          <th className="px-3 py-2">Pos</th>
-                          <th className="px-3 py-2">Team</th>
-                          <th className="px-3 py-2 text-right">Pld</th>
-                          <th className="px-3 py-2 text-right">Pts</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {g.table.map((r, idx) => {
+                    <div className="p-1">
+                      <TournamentGroupStageTable
+                        rows={g.table}
+                        renderTeam={(r) => {
                           const t = byId.get(r.teamId);
                           return (
-                            <tr
-                              key={r.teamId}
-                              className={`border-t border-slate-100 ${internationalGroupStandingRowClass(idx)}`}
-                            >
-                              <td className="px-3 py-2 font-mono text-slate-500">{idx + 1}</td>
-                              <td className="px-3 py-2 font-semibold text-slate-900">
-                                {nationalTeamDisplayFlag(t)} {t?.name ?? r.teamId}
-                              </td>
-                              <td className="px-3 py-2 text-right font-mono">{r.played}</td>
-                              <td className="px-3 py-2 text-right font-black">{r.points}</td>
-                            </tr>
+                            <>
+                              {nationalTeamDisplayFlag(t)} {t?.name ?? r.teamId}
+                            </>
                           );
-                        })}
-                      </tbody>
-                    </table>
+                        }}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                    <th className="px-4 py-2">Pos</th>
-                    <th className="px-4 py-2">Team</th>
-                    <th className="px-4 py-2 text-right">Pld</th>
-                    <th className="px-4 py-2 text-right">Pts</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {table.map((r, idx) => {
+              <div className="p-1">
+                <TournamentGroupStageTable
+                  rows={table}
+                  renderTeam={(r) => {
                     const t = byId.get(r.teamId);
                     return (
-                      <tr
-                        key={r.teamId}
-                        className={`border-t border-slate-100 ${internationalGroupStandingRowClass(idx)}`}
-                      >
-                        <td className="px-4 py-2 font-mono text-slate-500">{idx + 1}</td>
-                        <td className="px-4 py-2 font-semibold text-slate-900">
-                          {nationalTeamDisplayFlag(t)} {t?.name ?? r.teamId}
-                        </td>
-                        <td className="px-4 py-2 text-right font-mono">{r.played}</td>
-                        <td className="px-4 py-2 text-right font-black">{r.points}</td>
-                      </tr>
+                      <>
+                        {nationalTeamDisplayFlag(t)} {t?.name ?? r.teamId}
+                      </>
                     );
-                  })}
-                </tbody>
-              </table>
+                  }}
+                />
+              </div>
             )}
           </section>
 
@@ -358,7 +349,9 @@ export default async function InternationalCompetitionPage({
               Fixtures
             </h2>
             <ul className="max-h-[520px] overflow-auto divide-y divide-slate-100">
-              {fixtures.map((f: any) => {
+              {fixtures
+                .filter((f: any) => f.stage === "group" || groupsDone)
+                .map((f: any) => {
                 const h = byId.get(f.home_national_team_id);
                 const a = byId.get(f.away_national_team_id);
                 return (

@@ -3,10 +3,12 @@ import { Goal, LayoutDashboard, Newspaper, Radio, Shield, Trophy } from "lucide-
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { getDashboardSummary } from "@/lib/dashboardData";
 import { formatFixtureCalendarLabel } from "@/lib/calendarPhases";
-import { internationalGroupStandingRowClass } from "@/lib/internationalStandingsUi";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
-import { computeInternationalTable } from "@/lib/international";
+import {
+  computeInternationalTable,
+  fetchInternationalSavesByNationalTeam,
+} from "@/lib/international";
 import { fotMobBadgeClass } from "@/lib/fotMobBadge";
 import { internationalSubToSlug } from "@/lib/competitionLogos";
 import { CompetitionBrandLogo } from "@/components/CompetitionBrandLogo";
@@ -28,6 +30,8 @@ import { formatLeagueNameForDisplay } from "@/lib/trophyCabinet";
 import { getSimPreviewTestMode } from "@/lib/appSettings";
 import { InternationalTournamentActionBar } from "@/components/InternationalTournamentActionBar";
 import { ChampionsLeagueTournamentBoard } from "@/components/ChampionsLeagueTournamentBoard";
+import { TournamentGroupStageTable } from "@/components/TournamentGroupStageTable";
+import { LEAGUE_STYLE_TIEBREAK_BLURB } from "@/lib/standings";
 
 export const dynamic = "force-dynamic";
 type DashboardData = Awaited<ReturnType<typeof getDashboardSummary>>;
@@ -209,16 +213,25 @@ export default async function DashboardPage({
         ];
       }),
     );
+    const intlTeamSaves = await fetchInternationalSavesByNationalTeam(
+      supabase,
+      selectedSeason,
+      slug,
+    );
     const table = computeInternationalTable(
       (entries ?? []).map((e) => e.national_team_id),
       fixtures ?? [],
+      { teamSaves: intlTeamSaves },
     );
     const groupFixtures = (fixtures ?? []).filter((f: any) => f.stage === "group");
-    const groups = [...new Set(groupFixtures.map((f: any) => f.group_name).filter(Boolean))] as string[];
-    const groupTables = groups.map((g) => {
+    const groupsDone =
+      groupFixtures.length === 0 ||
+      groupFixtures.every((f: any) => f.status === "completed");
+    const groupTables = [...new Set(groupFixtures.map((f: any) => f.group_name).filter(Boolean))].map(
+      (g) => {
       const gf = groupFixtures.filter((f: any) => f.group_name === g);
       const ids = [...new Set(gf.flatMap((f: any) => [f.home_national_team_id, f.away_national_team_id]))];
-      const gt = computeInternationalTable(ids, gf as any);
+      const gt = computeInternationalTable(ids, gf as any, { teamSaves: intlTeamSaves });
       return {
         group: g,
         table: gt.map((r) => {
@@ -242,22 +255,24 @@ export default async function DashboardPage({
           countryCode: m?.code ?? null,
         };
       }),
-      fixtures: (fixtures ?? []).map((f) => {
-        const h = ntMeta.get(f.home_national_team_id);
-        const a = ntMeta.get(f.away_national_team_id);
-        const detail = (f as { score_detail?: { displayLine?: string } | null }).score_detail;
-        return {
-          ...f,
-          home: h?.name ?? f.home_national_team_id,
-          away: a?.name ?? f.away_national_team_id,
-          homeFlag: h?.flag ?? "🏳️",
-          awayFlag: a?.flag ?? "🏳️",
-          homeCode: h?.code ?? null,
-          awayCode: a?.code ?? null,
-          scoreDisplay:
-            typeof detail?.displayLine === "string" ? detail.displayLine : null,
-        };
-      }),
+      fixtures: (fixtures ?? [])
+        .filter((f: any) => f.stage === "group" || groupsDone)
+        .map((f) => {
+          const h = ntMeta.get(f.home_national_team_id);
+          const a = ntMeta.get(f.away_national_team_id);
+          const detail = (f as { score_detail?: { displayLine?: string } | null }).score_detail;
+          return {
+            ...f,
+            home: h?.name ?? f.home_national_team_id,
+            away: a?.name ?? f.away_national_team_id,
+            homeFlag: h?.flag ?? "🏳️",
+            awayFlag: a?.flag ?? "🏳️",
+            homeCode: h?.code ?? null,
+            awayCode: a?.code ?? null,
+            scoreDisplay:
+              typeof detail?.displayLine === "string" ? detail.displayLine : null,
+          };
+        }),
       groupTables,
     };
   }
@@ -511,13 +526,41 @@ export default async function DashboardPage({
     : { data: [] as { id: string; name: string; logo_url: string | null }[] };
   const dashSchedById = new Map((dashSchedTeams ?? []).map((t) => [t.id, t]));
 
-  const clFxList = clFixturesRaw.data ?? [];
-  const clFxTeamIds = [...new Set(clFxList.flatMap((f) => [f.home_team_id, f.away_team_id]))];
+  const clFxListRaw = clFixturesRaw.data ?? [];
+  const clGroupFx = clFxListRaw.filter(
+    (f) => f.cup_round === "CL_GA" || f.cup_round === "CL_GB",
+  );
+  const clGroupsComplete =
+    clGroupFx.length === 0 || clGroupFx.every((f) => f.status === "completed");
+  const clFxList = clFxListRaw.filter((f) => {
+    const r = f.cup_round ?? "";
+    if (r === "CL_SF1" || r === "CL_SF2" || r === "CL_F") return clGroupsComplete;
+    return true;
+  });
+  const clFxTeamIds = [
+    ...new Set(clFxListRaw.flatMap((f) => [f.home_team_id, f.away_team_id])),
+  ];
   const { data: clFxTeams } =
     clFxTeamIds.length > 0 ?
       await supabase.from("teams").select("id, name, logo_url").in("id", clFxTeamIds)
     : { data: [] as { id: string; name: string; logo_url: string | null }[] };
   const clTeamById = new Map((clFxTeams ?? []).map((t) => [t.id, t]));
+
+  let clTeamSaves: Record<string, number> | undefined;
+  if (selectedSeason && clFxTeamIds.length > 0) {
+    const [{ data: clPlayers }, { data: clStats }] = await Promise.all([
+      supabase.from("players").select("id, team_id").in("team_id", clFxTeamIds),
+      supabase.from("stats").select("player_id, saves").eq("season", selectedSeason),
+    ]);
+    const teamByPlayer = new Map((clPlayers ?? []).map((p) => [p.id, p.team_id]));
+    const acc: Record<string, number> = {};
+    for (const s of clStats ?? []) {
+      const tid = teamByPlayer.get(s.player_id);
+      if (!tid || !clFxTeamIds.includes(tid)) continue;
+      acc[tid] = (acc[tid] ?? 0) + Number(s.saves ?? 0);
+    }
+    clTeamSaves = acc;
+  }
 
   const seasonQ = encodeURIComponent(selectedSeason);
   const hv = honoursView;
@@ -1194,7 +1237,11 @@ export default async function DashboardPage({
                 </ul>
                 {clFxList.length > 0 ?
                   <div className="mt-6">
-                    <ChampionsLeagueTournamentBoard fixtures={clFxList} teamById={clTeamById} />
+                    <ChampionsLeagueTournamentBoard
+                      fixtures={clFxList}
+                      teamById={clTeamById}
+                      teamSaves={clTeamSaves}
+                    />
                   </div>
                 : (
                   <p className="mt-4 text-sm text-slate-500">
@@ -1334,16 +1381,14 @@ export default async function DashboardPage({
                             ? "Gold Cup"
                             : "World Cup"}
                       </h3>
-                      <p className="mt-1 text-xs text-slate-500">
-                        Tiebreak rules (tournament): points → GD → H2H → saves → H2H vs 3rd team → coin toss.
-                      </p>
+                      <p className="mt-1 text-xs text-slate-600">{LEAGUE_STYLE_TIEBREAK_BLURB}</p>
                       <p className="mt-2 text-xs text-slate-600">
                         <span className="inline-flex overflow-hidden rounded-md border border-sky-200 bg-sky-50">
                           <span className="w-1 shrink-0 bg-sky-600" aria-hidden />
                           <span className="px-2 py-0.5 font-semibold text-sky-950">Top two · Knockouts</span>
                         </span>
                       </p>
-                      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                      <div className="mt-4 flex flex-col gap-4">
                         <div className="overflow-hidden rounded-xl border border-slate-200">
                           {dataset.groupTables?.length ? (
                             <div className="space-y-3 p-3">
@@ -1352,74 +1397,54 @@ export default async function DashboardPage({
                                   <div className="bg-slate-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-slate-600">
                                     Group {g.group}
                                   </div>
-                                  <table className="w-full text-sm">
-                                    <thead>
-                                      <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                                        <th className="px-3 py-2">Pos</th><th className="px-3 py-2">Team</th><th className="px-3 py-2 text-right">P</th><th className="px-3 py-2 text-right">Pts</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {g.table.map((r: any, i: number) => (
-                                        <tr
-                                          key={r.teamId}
-                                          className={`border-t border-slate-100 ${internationalGroupStandingRowClass(i)}`}
-                                        >
-                                          <td className="px-3 py-2">{i + 1}</td>
-                                          <td className="px-3 py-2 font-semibold">
-                                            {r.countryCode ?
-                                              <Link
-                                                href={`/countries/${r.countryCode}`}
-                                                className="hover:text-emerald-800 hover:underline"
-                                              >
-                                                {r.flag} {r.name}
-                                              </Link>
-                                            : <>
-                                                {r.flag} {r.name}
-                                              </>
-                                            }
-                                          </td>
-                                          <td className="px-3 py-2 text-right">{r.played}</td>
-                                          <td className="px-3 py-2 text-right font-black">{r.points}</td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
+                                  <div className="p-1">
+                                    <TournamentGroupStageTable
+                                      rows={g.table}
+                                      renderTeam={(r) => {
+                                        const row = r as {
+                                          countryCode?: string | null;
+                                          flag?: string;
+                                          name?: string;
+                                        };
+                                        return row.countryCode ?
+                                            <Link
+                                              href={`/countries/${row.countryCode}`}
+                                              className="hover:text-emerald-800 hover:underline"
+                                            >
+                                              {row.flag} {row.name}
+                                            </Link>
+                                          : <>
+                                              {row.flag} {row.name}
+                                            </>;
+                                      }}
+                                    />
+                                  </div>
                                 </div>
                               ))}
                             </div>
                           ) : (
-                            <table className="w-full text-sm">
-                              <thead>
-                                <tr className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                                  <th className="px-3 py-2">Pos</th><th className="px-3 py-2">Team</th><th className="px-3 py-2 text-right">P</th><th className="px-3 py-2 text-right">Pts</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {dataset.table.map((r: any, i: number) => (
-                                  <tr
-                                    key={r.teamId}
-                                    className={`border-t border-slate-100 ${internationalGroupStandingRowClass(i)}`}
-                                  >
-                                    <td className="px-3 py-2">{i + 1}</td>
-                                    <td className="px-3 py-2 font-semibold">
-                                      {r.countryCode ?
-                                        <Link
-                                          href={`/countries/${r.countryCode}`}
-                                          className="hover:text-emerald-800 hover:underline"
-                                        >
-                                          {r.flag} {r.name}
-                                        </Link>
-                                      : <>
-                                          {r.flag} {r.name}
-                                        </>
-                                      }
-                                    </td>
-                                    <td className="px-3 py-2 text-right">{r.played}</td>
-                                    <td className="px-3 py-2 text-right font-black">{r.points}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                            <div className="p-1">
+                              <TournamentGroupStageTable
+                                rows={dataset.table}
+                                renderTeam={(r) => {
+                                  const row = r as {
+                                    countryCode?: string | null;
+                                    flag?: string;
+                                    name?: string;
+                                  };
+                                  return row.countryCode ?
+                                      <Link
+                                        href={`/countries/${row.countryCode}`}
+                                        className="hover:text-emerald-800 hover:underline"
+                                      >
+                                        {row.flag} {row.name}
+                                      </Link>
+                                    : <>
+                                        {row.flag} {row.name}
+                                      </>;
+                                }}
+                              />
+                            </div>
                           )}
                         </div>
                         <ul className="max-h-96 overflow-auto rounded-xl border border-slate-200 divide-y divide-slate-100">
@@ -1473,7 +1498,7 @@ export default async function DashboardPage({
                             (a, b) => a.week - b.week || String(a.stage).localeCompare(String(b.stage)),
                           );
                           return (
-                            <div className="lg:col-span-2">
+                            <div className="w-full">
                               <IntlKnockoutBracket fixtures={sorted} />
                             </div>
                           );

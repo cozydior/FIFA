@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { BracketColumnConnector } from "@/components/bracket/BracketColumnConnector";
-import { computeStandings, type FixtureRow } from "@/lib/standings";
+import { computeStandings, LEAGUE_STYLE_TIEBREAK_BLURB, type FixtureRow } from "@/lib/standings";
 import { formatFixtureCalendarLabel } from "@/lib/calendarPhases";
-import { internationalGroupStandingRowClass } from "@/lib/internationalStandingsUi";
+import { TournamentGroupStageTable } from "@/components/TournamentGroupStageTable";
 import { AetScoreLine } from "@/components/AetScoreLine";
 
 export type ClFxLite = {
@@ -34,50 +34,44 @@ function GroupBlock({
   label,
   fixtures,
   teamById,
+  teamSaves,
 }: {
   label: string;
   fixtures: ClFxLite[];
   teamById: Map<string, TeamInfo>;
+  teamSaves?: Record<string, number>;
 }) {
   if (fixtures.length === 0) return null;
   const ids = [...new Set(fixtures.flatMap((f) => [f.home_team_id, f.away_team_id]))];
-  const table = computeStandings(ids, toRows(fixtures), { mode: "tournament" });
+  const table = computeStandings(ids, toRows(fixtures), {
+    mode: "tournament",
+    teamSaves,
+  });
   return (
     <div className="overflow-hidden rounded-xl border border-sky-200/90 bg-white/90 shadow-sm">
       <div className="border-b border-sky-100 bg-sky-100/80 px-3 py-2 text-xs font-black uppercase tracking-wide text-sky-950">
         Group {label}
       </div>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left text-[0.65rem] uppercase tracking-wide text-slate-500">
-            <th className="px-3 py-2">Pos</th>
-            <th className="px-3 py-2">Team</th>
-            <th className="px-3 py-2 text-right">P</th>
-            <th className="px-3 py-2 text-right">Pts</th>
-          </tr>
-        </thead>
-        <tbody>
-          {table.map((r, i) => {
+      <div className="p-1">
+        <TournamentGroupStageTable
+          rows={table}
+          renderTeam={(r) => {
             const t = teamById.get(r.teamId);
             return (
-              <tr key={r.teamId} className={`border-t border-slate-100 ${internationalGroupStandingRowClass(i)}`}>
-                <td className="px-3 py-2 font-mono text-slate-600">{i + 1}</td>
-                <td className="px-3 py-2 font-semibold text-slate-900">
-                  <Link href={`/team/${r.teamId}`} className="inline-flex min-w-0 items-center gap-2 hover:text-emerald-800 hover:underline">
-                    {t?.logo_url ?
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={t.logo_url} alt="" className="h-6 w-6 shrink-0 rounded-md object-contain" />
-                    : null}
-                    <span className="min-w-0 break-words">{t?.name ?? r.teamId}</span>
-                  </Link>
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums text-slate-600">{r.played}</td>
-                <td className="px-3 py-2 text-right font-black tabular-nums text-slate-900">{r.points}</td>
-              </tr>
+              <Link
+                href={`/team/${r.teamId}`}
+                className="inline-flex min-w-0 items-center gap-2 font-bold text-slate-900 hover:text-emerald-800 hover:underline"
+              >
+                {t?.logo_url ?
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={t.logo_url} alt="" className="h-6 w-6 shrink-0 rounded-md object-contain" />
+                : null}
+                <span className="min-w-0 break-words">{t?.name ?? r.teamId}</span>
+              </Link>
             );
-          })}
-        </tbody>
-      </table>
+          }}
+        />
+      </div>
     </div>
   );
 }
@@ -163,9 +157,12 @@ function ClKoTieCard({
 export function ChampionsLeagueTournamentBoard({
   fixtures,
   teamById,
+  teamSaves,
 }: {
   fixtures: ClFxLite[];
   teamById: Map<string, TeamInfo>;
+  /** Season goalkeeper saves by team — used for tiebreak (same as league tables). */
+  teamSaves?: Record<string, number>;
 }) {
   const ga = fixtures.filter((f) => f.cup_round === "CL_GA");
   const gb = fixtures.filter((f) => f.cup_round === "CL_GB");
@@ -187,14 +184,13 @@ export function ChampionsLeagueTournamentBoard({
             <h4 className="text-sm font-black uppercase tracking-wide text-sky-950">Group stage</h4>
             <span className="text-[0.65rem] font-semibold text-sky-800/90">Top two advance · single round-robin</span>
           </div>
-          <div
-            className={`mt-4 grid gap-4 ${ga.length > 0 && gb.length > 0 ? "md:grid-cols-2" : "max-w-xl"}`}
-          >
+          <p className="mt-2 text-[0.65rem] leading-snug text-sky-900/85">{LEAGUE_STYLE_TIEBREAK_BLURB}</p>
+          <div className="mt-4 flex max-w-2xl flex-col gap-4">
             {ga.length > 0 ?
-              <GroupBlock label="A" fixtures={ga} teamById={teamById} />
+              <GroupBlock label="A" fixtures={ga} teamById={teamById} teamSaves={teamSaves} />
             : null}
             {gb.length > 0 ?
-              <GroupBlock label="B" fixtures={gb} teamById={teamById} />
+              <GroupBlock label="B" fixtures={gb} teamById={teamById} teamSaves={teamSaves} />
             : null}
           </div>
         </div>

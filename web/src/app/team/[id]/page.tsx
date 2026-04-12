@@ -160,7 +160,7 @@ export default async function TeamPage({
   const savedRes = await supabase
     .from("saved_sim_matches")
     .select(
-      "id, home_score, away_score, season_label, created_at, home_team_id, away_team_id",
+      "id, home_score, away_score, season_label, created_at, home_team_id, away_team_id, fixture_id",
     )
     .or(`home_team_id.eq.${id},away_team_id.eq.${id}`)
     .order("created_at", { ascending: false })
@@ -248,6 +248,25 @@ export default async function TeamPage({
       },
     ]),
   );
+
+  const savedSimFixtureIds = [
+    ...new Set(
+      (savedMatchRows ?? [])
+        .map((m) => m.fixture_id)
+        .filter((fid): fid is string => typeof fid === "string" && fid.length > 0),
+    ),
+  ];
+  const { data: savedSimFixturesRaw } =
+    savedSimFixtureIds.length > 0 ?
+      await supabase
+        .from("fixtures")
+        .select("id, competition, league_id, country, cup_round")
+        .in("id", savedSimFixtureIds)
+    : { data: [] as { id: string; competition: string | null; league_id: string | null; country: string | null; cup_round: string | null }[] };
+  const savedSimFixtureById = new Map(
+    (savedSimFixturesRaw ?? []).map((f) => [f.id, f]),
+  );
+
   const upTeamIds = [
     ...new Set((upcomingFx ?? []).flatMap((f) => [f.home_team_id, f.away_team_id])),
   ];
@@ -852,6 +871,21 @@ export default async function TeamPage({
                   letter === "W" ? "bg-emerald-500 text-white"
                   : letter === "L" ? "bg-red-500 text-white"
                   : "bg-slate-400 text-white";
+                const fxRow =
+                  m.fixture_id ? savedSimFixtureById.get(m.fixture_id) : undefined;
+                const compDisp =
+                  fxRow ?
+                    clubCompetitionDisplay(
+                      {
+                        competition: fxRow.competition,
+                        league_id: fxRow.league_id,
+                        country: fxRow.country,
+                        cup_round: fxRow.cup_round,
+                      },
+                      leagueByIdForUp,
+                      flagByCountryForDisplay,
+                    )
+                  : null;
                 return (
                   <li key={m.id}>
                     <Link
@@ -860,6 +894,29 @@ export default async function TeamPage({
                     >
                       <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[0.65rem] font-black ${badge}`}>
                         {letter}
+                      </span>
+                      <span className="inline-flex min-w-0 max-w-[11rem] shrink-0 items-center gap-1.5 truncate text-xs font-semibold text-slate-600 sm:max-w-[14rem]">
+                        {compDisp?.leagueLogoUrl ?
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={compDisp.leagueLogoUrl}
+                            alt=""
+                            className="h-6 w-6 shrink-0 rounded-md border border-slate-200/80 bg-white object-contain p-0.5"
+                          />
+                        : null}
+                        {compDisp?.useClBrand ?
+                          <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-200/80 bg-white p-0.5">
+                            <CompetitionBrandLogo slug="champions_league" className="h-4 w-4" />
+                          </span>
+                        : null}
+                        {compDisp?.countryFlagEmoji ?
+                          <span className="shrink-0 text-base leading-none" aria-hidden>
+                            {compDisp.countryFlagEmoji}
+                          </span>
+                        : null}
+                        <span className="min-w-0 truncate">
+                          {compDisp?.competitionLabel ?? "Saved match"}
+                        </span>
                       </span>
                       <span className="flex shrink-0 items-center gap-1.5">
                         {selfLogo ?

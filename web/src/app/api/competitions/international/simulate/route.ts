@@ -78,10 +78,14 @@ export async function POST(req: Request) {
         const fotMob = p.fotMob;
         const goals = p.goals ?? 0;
         const saves = p.saves ?? 0;
+        const shotT = p.shots ?? 0;
+        const shotF = p.shotsFaced ?? 0;
 
         const { data: existing } = await supabase
           .from("player_international_stats")
-          .select("caps, goals_for_country, saves_for_country, average_rating")
+          .select(
+            "caps, goals_for_country, saves_for_country, average_rating, shots_taken, shots_faced",
+          )
           .eq("player_id", p.id)
           .eq("season_label", seasonLabel)
           .eq("competition_slug", slug)
@@ -101,6 +105,8 @@ export async function POST(req: Request) {
             caps: newCaps,
             goals_for_country: (existing?.goals_for_country ?? 0) + goals,
             saves_for_country: (existing?.saves_for_country ?? 0) + saves,
+            shots_taken: (existing?.shots_taken ?? 0) + shotT,
+            shots_faced: (existing?.shots_faced ?? 0) + shotF,
             average_rating: avg,
           },
           { onConflict: "player_id,season_label,competition_slug" },

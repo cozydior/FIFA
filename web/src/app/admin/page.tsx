@@ -396,6 +396,12 @@ export default function AdminPage() {
         {panel === "cups" && (
           <>
             <NationalTeamsSeedSection />
+            <EditNationalTeamSection
+              nationalTeams={nationalTeams}
+              teams={teams}
+              countries={countries}
+              onSuccess={refreshLists}
+            />
             <InternationalCallupsSection nationalTeams={nationalTeams} />
           </>
         )}
@@ -784,8 +790,9 @@ function TournamentsModeToggleSection() {
       <h2 className="mb-2 text-lg font-semibold text-zinc-900">Tournaments mode</h2>
       <p className="mb-3 text-sm text-zinc-600">
         When enabled, the Matchday dashboard shows <strong>Seed CL</strong>, <strong>Preview seed</strong> (if Sim preview
-        is on), and <strong>Refresh semis</strong> for Champions League. Default is <strong>off</strong> so those actions
-        stay hidden in normal play.
+        is on), and <strong>Refresh semis</strong> for Champions League, and the international hub shows{" "}
+        <strong>Generate Nations League</strong> / <strong>Generate Gold Cup</strong> (World Cup draw stays available
+        without this). Default is <strong>off</strong> so those actions stay hidden in normal play.
       </p>
       <label className="flex cursor-pointer items-center gap-3 text-sm font-semibold text-zinc-800">
         <input
@@ -889,6 +896,195 @@ function NationalTeamsSeedSection() {
   );
 }
 
+function EditNationalTeamSection({
+  nationalTeams,
+  teams,
+  countries,
+  onSuccess,
+}: {
+  nationalTeams: NationalTeamOption[];
+  teams: TeamOption[];
+  countries: CountryOption[];
+  onSuccess: () => void | Promise<void>;
+}) {
+  const [selectedId, setSelectedId] = useState("");
+  const [name, setName] = useState("");
+  const [honourRows, setHonourRows] = useState<HonourEditRow[]>([]);
+  const [trophySlugs, setTrophySlugs] = useState<{ slug: string; name: string }[]>([]);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetch("/api/admin/trophy-definitions")
+      .then((r) => r.json())
+      .then((data: TrophyDefRow[]) => {
+        if (Array.isArray(data)) {
+          setTrophySlugs(data.map((d) => ({ slug: d.slug, name: d.name })));
+        }
+      })
+      .catch(() => setTrophySlugs([]));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setHonourRows([]);
+      return;
+    }
+    void (async () => {
+      const res = await fetch(`/api/admin/national-teams/${selectedId}`);
+      const d = await res.json();
+      if (!res.ok) return;
+      setName(d.name ?? "");
+      setHonourRows(honourRowsFromTrophies(d.trophies));
+    })();
+  }, [selectedId]);
+
+  async function save() {
+    if (!selectedId) return;
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/admin/national-teams/${selectedId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          trophies: serializeHonourRows(honourRows),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      setMessage(`Updated ${data.name}`);
+      await onSuccess();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Failed");
+    }
+  }
+
+  function addHonourRow() {
+    setHonourRows((h) => [...h, { trophy_slug: "", season: "", custom_name: "", won_with: "" }]);
+  }
+
+  function removeHonourRow(i: number) {
+    setHonourRows((h) => h.filter((_, j) => j !== i));
+  }
+
+  function patchHonourRow(i: number, patch: Partial<HonourEditRow>) {
+    setHonourRows((h) => h.map((row, j) => (j === i ? { ...row, ...patch } : row)));
+  }
+
+  return (
+    <section className="rounded-2xl border border-slate-300/90 bg-white p-6 shadow-sm">
+      <h2 className="mb-4 text-lg font-semibold text-zinc-900">Edit national team</h2>
+      <p className="mb-3 text-sm text-zinc-600">
+        Manage the <strong>honours cabinet</strong> (e.g. World Cup) — stars on the public country page count{" "}
+        <code className="rounded bg-zinc-100 px-1 font-mono text-xs">world_cup</code> entries.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <select
+          value={selectedId}
+          onChange={(e) => setSelectedId(e.target.value)}
+          className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+        >
+          <option value="">Select national team…</option>
+          {nationalTeams.map((n) => (
+            <option key={n.id} value={n.id}>
+              {(n.flag_emoji ?? "🏳️")} {n.name}
+            </option>
+          ))}
+        </select>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Display name"
+          className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+        />
+      </div>
+
+      <div className="mt-6 border-t border-zinc-200 pt-4">
+        <h3 className="mb-2 text-sm font-semibold text-zinc-800">Honours (trophy cabinet)</h3>
+        <ul className="space-y-3">
+          {honourRows.map((row, i) => (
+            <li
+              key={`nth-${i}`}
+              className="flex flex-col gap-2 rounded-lg border border-zinc-200 bg-zinc-50/80 p-3 sm:flex-row sm:flex-wrap sm:items-end"
+            >
+              <label className="flex min-w-[10rem] flex-1 flex-col gap-1 text-xs">
+                <span className="font-medium text-zinc-600">Trophy type</span>
+                <select
+                  value={row.trophy_slug}
+                  onChange={(e) => patchHonourRow(i, { trophy_slug: e.target.value })}
+                  className="rounded-lg border border-zinc-300 bg-white px-2 py-2 text-sm"
+                >
+                  <option value="">— Custom title —</option>
+                  {trophySlugs.map((t) => (
+                    <option key={t.slug} value={t.slug}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {!row.trophy_slug ?
+                <label className="flex min-w-[8rem] flex-1 flex-col gap-1 text-xs">
+                  <span className="font-medium text-zinc-600">Custom title</span>
+                  <input
+                    value={row.custom_name}
+                    onChange={(e) => patchHonourRow(i, { custom_name: e.target.value })}
+                    placeholder="e.g. Olympic gold"
+                    className="rounded-lg border border-zinc-300 bg-white px-2 py-2 text-sm"
+                  />
+                </label>
+              : null}
+              <label className="flex min-w-[6rem] flex-col gap-1 text-xs">
+                <span className="font-medium text-zinc-600">Season</span>
+                <input
+                  value={row.season}
+                  onChange={(e) => patchHonourRow(i, { season: e.target.value })}
+                  placeholder="2025/26"
+                  className="rounded-lg border border-zinc-300 bg-white px-2 py-2 font-mono text-sm"
+                />
+              </label>
+              <div className="flex min-w-[10rem] flex-1 flex-col gap-1 text-xs">
+                <span className="font-medium text-zinc-600">Won with (optional)</span>
+                <WonWithPicker
+                  value={row.won_with}
+                  onChange={(v) => patchHonourRow(i, { won_with: v })}
+                  teams={teams}
+                  countries={countries}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => removeHonourRow(i)}
+                className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-white p-2 text-red-700 hover:bg-red-50"
+                aria-label="Remove row"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </li>
+          ))}
+        </ul>
+        <button
+          type="button"
+          onClick={addHonourRow}
+          className="mt-2 inline-flex items-center gap-1 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-800"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add honour
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => void save()}
+        disabled={!selectedId}
+        className="mt-4 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-900 disabled:opacity-50"
+      >
+        Save national team
+      </button>
+      {message && <p className="mt-2 text-sm text-zinc-700">{message}</p>}
+    </section>
+  );
+}
+
 function InternationalCallupsSection({
   nationalTeams,
 }: {
@@ -958,8 +1154,12 @@ function InternationalCallupsSection({
     }
   }
 
-  const sts = pool.filter((p) => p.role === "ST");
-  const gks = pool.filter((p) => p.role === "GK");
+  const sts = [...pool]
+    .filter((p) => p.role === "ST")
+    .sort((a, b) => Number(b.market_value ?? 0) - Number(a.market_value ?? 0));
+  const gks = [...pool]
+    .filter((p) => p.role === "GK")
+    .sort((a, b) => Number(b.market_value ?? 0) - Number(a.market_value ?? 0));
 
   return (
     <section className="rounded-2xl border border-slate-300/90 bg-white p-6 shadow-sm">

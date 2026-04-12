@@ -85,6 +85,17 @@ function trophyGroupKey(e: TrophyCabinetEntry, index: number): string {
   return `anon:${index}`;
 }
 
+/** Counts how many seasons a slug appears in the cabinet (grouped rows). */
+export function countSeasonsWithTrophySlug(
+  raw: unknown,
+  slug: string,
+  defs: Map<string, TrophyDefinitionRow>,
+): number {
+  const grouped = groupTrophyCabinetEntries(parseTrophyList(raw), defs);
+  const hit = grouped.find((g) => g.entry.trophy_slug === slug);
+  return hit ? hit.seasons.length : 0;
+}
+
 /** Merge duplicate honours (same trophy won in multiple seasons) into one tile with all seasons listed. */
 export function groupTrophyCabinetEntries(
   entries: TrophyCabinetEntry[],

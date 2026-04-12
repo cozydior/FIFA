@@ -9,6 +9,7 @@ import {
   canBootstrapNationsLeagueOrGoldCup,
   canDrawWorldCupGroups,
 } from "@/lib/tournamentGates";
+import { getTournamentsMode } from "@/lib/appSettings";
 
 export async function POST(req: Request) {
   try {
@@ -44,6 +45,16 @@ export async function POST(req: Request) {
     }
 
     if (slug === "nations_league" || slug === "gold_cup") {
+      const tournamentsOn = await getTournamentsMode();
+      if (!tournamentsOn) {
+        return NextResponse.json(
+          {
+            error:
+              "Turn on Tournaments mode in Admin → Season to generate Nations League or Gold Cup.",
+          },
+          { status: 403 },
+        );
+      }
       const gate = await canBootstrapNationsLeagueOrGoldCup(supabase, seasonLabel);
       if (!gate.ok) {
         return NextResponse.json({ error: gate.reason ?? "Requirements not met" }, { status: 403 });

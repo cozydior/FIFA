@@ -19,16 +19,16 @@ import {
 import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
 import { dashboardDomesticLeagueUrl } from "@/lib/dashboardLinks";
 import {
+  countSeasonsWithTrophySlug,
   definitionsBySlug,
-  formatHonourWonWithDisplay,
   formatLeagueNameForDisplay,
   groupTrophyCabinetEntries,
   parseTrophyList,
-  resolveTrophyDisplay,
   type TrophyDefinitionRow,
-  type TrophySeasonDetail,
 } from "@/lib/trophyCabinet";
-import { TrophyIconDisplay } from "@/components/TrophyIconDisplay";
+import { TrophyTitleStars } from "@/components/TrophyTitleStars";
+import { HonourCabinetChips } from "@/components/HonourCabinetCompact";
+import { sortCabinetGroups } from "@/lib/honourDisplayOrder";
 import { formatMoneyPounds } from "@/lib/formatMoney";
 import { formatFixtureCalendarLabel } from "@/lib/calendarPhases";
 import {
@@ -176,7 +176,16 @@ export default async function TeamPage({
   const defMap = definitionsBySlug(
     (trophyDefs ?? []) as TrophyDefinitionRow[],
   );
-  const trophies = groupTrophyCabinetEntries(parseTrophyList(team.trophies), defMap);
+  const trophies = sortCabinetGroups(
+    groupTrophyCabinetEntries(parseTrophyList(team.trophies), defMap),
+    "team",
+    defMap,
+  );
+  const championsLeagueStars = countSeasonsWithTrophySlug(
+    team.trophies,
+    "champions_league",
+    defMap,
+  );
 
   const savedRes = await supabase
     .from("saved_sim_matches")
@@ -500,8 +509,9 @@ export default async function TeamPage({
             <p className="text-[0.65rem] font-bold uppercase tracking-[0.2em] text-emerald-700/90">
               Club
             </p>
-            <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
-              {team.name}
+            <h1 className="mt-1 flex flex-wrap items-center justify-center gap-x-1 text-3xl font-extrabold tracking-tight text-slate-900 sm:justify-start sm:text-4xl">
+              <span>{team.name}</span>
+              <TrophyTitleStars count={championsLeagueStars} label="Champions League titles" />
             </h1>
             {league && (
               <p className="mt-2 flex flex-wrap items-center gap-2 text-sm font-medium text-slate-600">
@@ -728,44 +738,7 @@ export default async function TeamPage({
             <p className="rounded-xl border border-dashed border-slate-300 bg-white/80 px-4 py-6 text-center text-sm text-slate-500">
               No silverware on file — win cups and leagues to fill this cabinet.
             </p>
-          : <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {trophies.map(({ entry: tr, seasons }, i) => {
-                const { label, iconUrl } = resolveTrophyDisplay(tr, defMap);
-                const seasonKey = seasons
-                  .map((s: TrophySeasonDetail) => `${s.season}:${s.won_with ?? ""}`)
-                  .join(",");
-                return (
-                  <li
-                    key={`${label}-${seasonKey}-${i}`}
-                    className="flex flex-col items-center rounded-2xl border border-slate-300/90 bg-white p-4 text-center shadow-sm"
-                  >
-                    <div className="mb-2 flex h-14 w-14 items-center justify-center">
-                      <TrophyIconDisplay iconUrl={iconUrl} />
-                    </div>
-                    {seasons.length > 1 && (
-                      <span className="mb-0.5 text-xs font-bold text-slate-900">×{seasons.length}</span>
-                    )}
-                    <span className="text-sm font-bold text-slate-900">{label}</span>
-                    {seasons.length > 0 && (
-                      <ul className="mt-1 w-full space-y-0.5 text-xs font-medium text-slate-500">
-                        {seasons.map((sd) => (
-                          <li key={`${sd.season}-${sd.won_with ?? ""}`}>
-                            <span className="font-semibold text-slate-700">{sd.season}</span>
-                            {sd.won_with ?
-                              <span className="text-slate-600">
-                                {" "}
-                                · {formatHonourWonWithDisplay(sd.won_with)}
-                              </span>
-                            : null}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          }
+          : <HonourCabinetChips groups={trophies} defMap={defMap} />}
         </section>
 
         {topNationalities.length > 0 && (

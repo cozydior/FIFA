@@ -13,9 +13,18 @@ import {
   Trophy,
   X,
 } from "lucide-react";
-import { fetchInternationalRollOfHonour } from "@/lib/competitionHistory";
 import { fetchNationalTournamentHistory } from "@/lib/nationalTournamentHistory";
 import { formatMoneyPounds } from "@/lib/formatMoney";
+import {
+  countSeasonsWithTrophySlug,
+  definitionsBySlug,
+  groupTrophyCabinetEntries,
+  parseTrophyList,
+  type TrophyDefinitionRow,
+} from "@/lib/trophyCabinet";
+import { TrophyTitleStars } from "@/components/TrophyTitleStars";
+import { HonourCabinetChips } from "@/components/HonourCabinetCompact";
+import { sortCabinetGroups } from "@/lib/honourDisplayOrder";
 
 export const revalidate = 60;
 
@@ -35,13 +44,6 @@ function intlFormResult(
   if (gf < ga) return "L";
   return "D";
 }
-
-const INTL_SLUGS = ["nations_league", "gold_cup", "world_cup"] as const;
-const INTL_LABEL: Record<(typeof INTL_SLUGS)[number], string> = {
-  nations_league: "UEFA Nations League",
-  gold_cup: "FIFA Gold Cup",
-  world_cup: "FIFA World Cup",
-};
 
 export default async function CountryPage({
   params,
@@ -66,7 +68,7 @@ export default async function CountryPage({
 
   const { data: nt } = await supabase
     .from("national_teams")
-    .select("id, name, confederation, flag_emoji")
+    .select("id, name, confederation, flag_emoji, trophies")
     .eq("country_id", country.id)
     .maybeSingle();
 
@@ -109,20 +111,34 @@ export default async function CountryPage({
   const availablePool = (nationalityPool ?? []).filter(
     (p) => !callupPlayerIds.has(p.id as string),
   );
-
-  const honoursByComp =
-    nt ?
-      await Promise.all(
-        INTL_SLUGS.map(async (slug) => ({
-          slug,
-          rows: (await fetchInternationalRollOfHonour(supabase, slug)).filter(
-            (r) => r.winner.id === nt.id,
-          ),
-        })),
-      )
-    : [];
+  const poolRoleRank = (r: string) => (r === "ST" ? 0 : r === "GK" ? 1 : 2);
+  const sortedAvailablePool = [...availablePool].sort((a, b) => {
+    const pa = a as { name?: string; role?: string; market_value?: unknown };
+    const pb = b as { name?: string; role?: string; market_value?: unknown };
+    const rd = poolRoleRank(pa.role ?? "") - poolRoleRank(pb.role ?? "");
+    if (rd !== 0) return rd;
+    const mv =
+      Number(pb.market_value ?? 0) - Number(pa.market_value ?? 0);
+    if (mv !== 0) return mv;
+    return String(pa.name ?? "").localeCompare(String(pb.name ?? ""));
+  });
 
   const tournamentHistory = nt ? await fetchNationalTournamentHistory(supabase, nt.id) : [];
+
+  const { data: trophyDefs } = await supabase
+    .from("trophy_definitions")
+    .select("id, slug, name, icon_url, sort_order");
+  const defMap = definitionsBySlug((trophyDefs ?? []) as TrophyDefinitionRow[]);
+  const ntCabinet = nt
+    ? sortCabinetGroups(
+        groupTrophyCabinetEntries(parseTrophyList(nt.trophies), defMap),
+        "country",
+        defMap,
+      )
+    : [];
+  const worldCupStars = nt
+    ? countSeasonsWithTrophySlug(nt.trophies, "world_cup", defMap)
+    : 0;
 
   type IntlFormRow = {
     id: string;
@@ -224,9 +240,10 @@ export default async function CountryPage({
           <p className="text-[0.65rem] font-bold uppercase tracking-[0.2em] text-emerald-700/90">
             National team
           </p>
-          <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
-            <span className="mr-2">{displayFlag}</span>
-            {country.name}
+          <h1 className="mt-1 flex flex-wrap items-center gap-x-2 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
+            <span className="mr-1">{displayFlag}</span>
+            <span>{country.name}</span>
+            <TrophyTitleStars count={worldCupStars} label="FIFA World Cup titles" />
           </h1>
           {nt && (
             <p className="mt-2 text-sm font-medium text-slate-600">
@@ -239,8 +256,8 @@ export default async function CountryPage({
           )}
           {!nt && (
             <p className="mt-2 text-sm text-amber-800">
-              No national team row for this country yet — run{" "}
-              <strong>Seed national teams</strong> in Admin.
+              No national team is linked to this country in <strong>this database</strong> yet — run{" "}
+              <strong>Seed national teams</strong> in Admin (or sync data with your deployed environment).
             </p>
           )}
           <div className="mt-3 flex flex-wrap gap-3">
@@ -316,7 +333,7 @@ export default async function CountryPage({
                 <TrendingUp className="h-4 w-4 shrink-0 text-emerald-600" />
                 Current form (last 5 international)
               </p>
-              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <div className="mt-1.5 flex flex-wrap items-end gap-3">
                 {intlFormLast.length > 0 ?
                   intlFormLast.map((f) => {
                     const letter = intlFormResult(
@@ -338,7 +355,7 @@ export default async function CountryPage({
                     return (
                       <span
                         key={f.id}
-                        className="inline-flex items-center gap-1.5"
+                        className="inline-flex flex-col items-center gap-1"
                         title={
                           opp ?
                             `${letter === "W" ? "Win" : letter === "L" ? "Loss" : "Draw"} vs ${opp.name}`
@@ -433,31 +450,17 @@ export default async function CountryPage({
               International honours
             </h2>
             <p className="mt-1 text-sm text-slate-600">
-              Titles from completed tournament finals in the sim (same source as dashboard &quot;Past
-              winners&quot;).
+              Add titles in <strong>Admin → Cups &amp; intl → Edit national team</strong> (same trophy
+              library as clubs). Stars next to the country name count World Cup entries here.
             </p>
-            {honoursByComp.every((h) => h.rows.length === 0) ?
-              <p className="mt-4 text-sm text-slate-500">No tournament wins on record yet.</p>
-            : (
-              <ul className="mt-4 space-y-4">
-                {honoursByComp
-                  .filter((h) => h.rows.length > 0)
-                  .sort(
-                    (a, b) =>
-                      INTL_SLUGS.indexOf(a.slug) - INTL_SLUGS.indexOf(b.slug),
-                  )
-                  .map((h) => (
-                    <li key={h.slug}>
-                      <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                        {INTL_LABEL[h.slug]}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-800">
-                        {h.rows.map((r) => r.seasonLabel).join(", ")}
-                      </p>
-                    </li>
-                  ))}
-              </ul>
-            )}
+            {ntCabinet.length === 0 ?
+              <p className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white/80 px-4 py-6 text-center text-sm text-slate-500">
+                No silverware on file yet — use Admin to record honours.
+              </p>
+            : <div className="mt-4">
+                <HonourCabinetChips groups={ntCabinet} defMap={defMap} />
+              </div>
+            }
           </section>
         )}
 
@@ -545,7 +548,7 @@ export default async function CountryPage({
                 : "No players found with this nationality."}
               </p>
             : <ul className="mt-4 divide-y divide-slate-100 rounded-xl border border-slate-200/80">
-                {availablePool.map((raw) => {
+                {sortedAvailablePool.map((raw) => {
                   const pl = raw as {
                     id: string;
                     name: string;

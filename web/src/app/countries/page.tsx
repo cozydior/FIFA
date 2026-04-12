@@ -135,7 +135,6 @@ export default async function NationalTeamsIndexPage() {
                       <th className="py-2 pr-3">Team</th>
                       <th className="py-2 pr-3">Confed.</th>
                       <th className="py-2 text-right">Rtg</th>
-                      <th className="py-2 text-right">P</th>
                       <th className="py-2 text-right">W</th>
                       <th className="py-2 text-right">D</th>
                       <th className="py-2 text-right">L</th>
@@ -173,9 +172,6 @@ export default async function NationalTeamsIndexPage() {
                           </td>
                           <td className="py-2.5 text-right font-mono font-bold tabular-nums">
                             {p?.rating ?? 0}
-                          </td>
-                          <td className="py-2.5 text-right font-mono tabular-nums text-slate-600">
-                            {p?.played ?? 0}
                           </td>
                           <td className="py-2.5 text-right font-mono tabular-nums text-slate-600">
                             {p?.won ?? 0}

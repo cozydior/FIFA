@@ -6,6 +6,7 @@ import {
   progressInternationalCompetition,
 } from "@/lib/international";
 import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
+import { sortInternationalGroupNames } from "@/lib/internationalGroupOrder";
 
 type Params = { params: Promise<{ slug: string }> };
 
@@ -59,7 +60,9 @@ export async function GET(req: Request, { params }: Params) {
       seasonLabel,
       slug,
     );
-    const groups = [...new Set(groupFixtures.map((f) => f.group_name).filter(Boolean))] as string[];
+    const groups = sortInternationalGroupNames(
+      [...new Set(groupFixtures.map((f) => f.group_name).filter(Boolean))] as string[],
+    );
     const groupTables = groups.map((g) => {
       const gf = groupFixtures.filter((f) => f.group_name === g);
       const ids = [...new Set(gf.flatMap((f) => [f.home_national_team_id, f.away_national_team_id]))];

@@ -6,15 +6,17 @@ import {
   fetchInternationalSavesByNationalTeam,
 } from "@/lib/international";
 import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
-import { getSimPreviewTestMode } from "@/lib/appSettings";
+import { getSimPreviewTestMode, getTournamentsMode } from "@/lib/appSettings";
 import { InternationalTournamentActionBar } from "@/components/InternationalTournamentActionBar";
 import { InternationalCompetitionClient } from "../InternationalCompetitionClient";
 import { CompetitionBrandLogo } from "@/components/CompetitionBrandLogo";
+import { NationalTeamHonourLink } from "@/components/NationalTeamHonourLink";
 import { fetchInternationalRollOfHonour } from "@/lib/competitionHistory";
 import { IntlKnockoutBracket, type IntlKoFixture } from "@/components/IntlKnockoutBracket";
 import { formatFixtureCalendarLabel } from "@/lib/calendarPhases";
 import { TournamentGroupStageTable } from "@/components/TournamentGroupStageTable";
 import { LEAGUE_STYLE_TIEBREAK_BLURB } from "@/lib/standings";
+import { sortInternationalGroupNames } from "@/lib/internationalGroupOrder";
 
 const TITLES: Record<string, string> = {
   nations_league: "UEFA Nations League",
@@ -46,6 +48,8 @@ export default async function InternationalCompetitionPage({
   const season = seasonFromUrl.trim() || currentSeason;
   const honoursView = sp.view === "honours";
   const previewEnabled = await getSimPreviewTestMode();
+  const tournamentsMode = await getTournamentsMode();
+  const allowIntlBootstrap = slug === "world_cup" || tournamentsMode;
 
   if (!season) {
     return (
@@ -133,14 +137,23 @@ export default async function InternationalCompetitionPage({
         (country?.flag_emoji as string | null) ??
         (t.flag_emoji as string | null) ??
         "🏳️";
-      return [t.id, { ...t, display_flag: flag, countryCode: country?.code ?? null }] as const;
+      return [
+        t.id,
+        {
+          ...t,
+          display_flag: flag,
+          countryCode: country?.code ?? null,
+        },
+      ] as const;
     }),
   );
   const groupFixtures = fixtures.filter((f) => (f as any).stage === "group");
   const groupsDone =
     groupFixtures.length === 0 ||
     groupFixtures.every((f: any) => f.status === "completed");
-  const groups = [...new Set(groupFixtures.map((f: any) => f.group_name).filter(Boolean))] as string[];
+  const groups = sortInternationalGroupNames(
+    [...new Set(groupFixtures.map((f: any) => f.group_name).filter(Boolean))] as string[],
+  );
   const groupTables = groups.map((g) => {
     const gf = groupFixtures.filter((f: any) => f.group_name === g);
     const ids = [...new Set(gf.flatMap((f: any) => [f.home_national_team_id, f.away_national_team_id]))];
@@ -250,16 +263,15 @@ export default async function InternationalCompetitionPage({
                   {rollOfHonour.map((r) => (
                     <tr key={r.seasonLabel} className="border-t border-slate-100">
                       <td className="px-3 py-2 font-mono text-xs text-slate-600">{r.seasonLabel}</td>
-                      <td className="px-3 py-2 font-semibold text-slate-900">
-                        <span className="mr-1.5">{r.winner.flag}</span>
-                        {r.winner.name}
+                      <td className="px-3 py-2">
+                        <NationalTeamHonourLink team={r.winner} />
                       </td>
                       <td className="px-3 py-2 text-slate-800">
                         {r.runnerUp ?
-                          <>
-                            <span className="mr-1.5">{r.runnerUp.flag}</span>
-                            {r.runnerUp.name}
-                          </>
+                          <NationalTeamHonourLink
+                            team={r.runnerUp}
+                            className="inline-flex items-center text-slate-800"
+                          />
                         : <span className="text-slate-400">—</span>}
                       </td>
                     </tr>
@@ -277,6 +289,7 @@ export default async function InternationalCompetitionPage({
             slug={slug as "nations_league" | "gold_cup" | "world_cup"}
             seasonLabel={season}
             previewEnabled={previewEnabled}
+            allowBootstrap={allowIntlBootstrap}
           />
           <InternationalCompetitionClient
             slug={slug as "nations_league" | "gold_cup" | "world_cup"}
@@ -318,7 +331,8 @@ export default async function InternationalCompetitionPage({
                           const t = byId.get(r.teamId);
                           return (
                             <>
-                              {nationalTeamDisplayFlag(t)} {t?.name ?? r.teamId}
+                              <span className="mr-1">{nationalTeamDisplayFlag(t)}</span>
+                              {t?.name ?? r.teamId}
                             </>
                           );
                         }}
@@ -335,7 +349,8 @@ export default async function InternationalCompetitionPage({
                     const t = byId.get(r.teamId);
                     return (
                       <>
-                        {nationalTeamDisplayFlag(t)} {t?.name ?? r.teamId}
+                        <span className="mr-1">{nationalTeamDisplayFlag(t)}</span>
+                        {t?.name ?? r.teamId}
                       </>
                     );
                   }}

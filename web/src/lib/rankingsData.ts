@@ -197,7 +197,10 @@ export async function fetchRankingsRows(opts: {
 
     let scope_goals = agg.goals;
     let scope_saves = agg.saves;
-    if (opts.statScope === "season") {
+    if (opts.statScope === "career") {
+      scope_goals = agg.goals + intl_goals;
+      scope_saves = agg.saves + intl_saves;
+    } else if (opts.statScope === "season") {
       scope_goals = ss.goals;
       scope_saves = ss.saves;
     } else if (opts.statScope === "world_cup") {
@@ -254,8 +257,8 @@ export async function fetchRankingsRows(opts: {
       team_logo_url: teamLogo,
       league_name: leagueName,
       league_country: leagueCountry,
-      career_goals: agg.goals,
-      career_saves: agg.saves,
+      career_goals: agg.goals + intl_goals,
+      career_saves: agg.saves + intl_saves,
       season_goals: ss.goals,
       season_saves: ss.saves,
       season_avg: ss.avg,

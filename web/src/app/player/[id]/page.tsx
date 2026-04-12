@@ -6,15 +6,20 @@ import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
 import { dashboardDomesticLeagueUrl } from "@/lib/dashboardLinks";
 import {
   definitionsBySlug,
-  formatHonourWonWithDisplay,
   formatLeagueNameForDisplay,
   groupTrophyCabinetEntries,
   parseTrophyList,
-  resolveTrophyDisplay,
   type TrophyDefinitionRow,
 } from "@/lib/trophyCabinet";
-import { TrophyIconDisplay } from "@/components/TrophyIconDisplay";
 import { Trophy } from "lucide-react";
+import { HonourCategoryBlock, HonourCabinetChips } from "@/components/HonourCabinetCompact";
+import {
+  filterCabinetBySlugs,
+  filterCabinetExcludeSlugs,
+  mergeGroupedBySlug,
+  sortCabinetGroups,
+} from "@/lib/honourDisplayOrder";
+import type { GroupedCabinet } from "@/lib/honourDisplayOrder";
 import {
   fetchPlayerTransferTransactions,
   seasonToClubMap,
@@ -25,6 +30,8 @@ import {
 import { parsePlayerNameFromTransferNote } from "@/lib/transferNotes";
 import { formatMoneyPounds } from "@/lib/formatMoney";
 import { fotMobBadgeClass } from "@/lib/fotMobBadge";
+import { CompetitionBrandLogo } from "@/components/CompetitionBrandLogo";
+import { formatInternationalCompetitionLabel } from "@/lib/intlCompetitionLabels";
 
 export const revalidate = 60;
 
@@ -122,11 +129,34 @@ export default async function PlayerPage({
     });
   const statsRows = (statsRowsRaw ?? []) as PlayerLeagueStatsRow[];
 
-  const { data: intlRows } = await supabase
+  const intlPrimary = await supabase
     .from("player_international_stats")
-    .select("season_label, competition_slug, caps, goals_for_country, saves_for_country, average_rating")
+    .select(
+      "season_label, competition_slug, caps, goals_for_country, saves_for_country, average_rating, shots_taken, shots_faced",
+    )
     .eq("player_id", id)
     .order("season_label", { ascending: false });
+  type IntlStatRow = {
+    season_label: string;
+    competition_slug: string;
+    caps: number | null;
+    goals_for_country: number | null;
+    saves_for_country: number | null;
+    average_rating: number | null;
+    shots_taken?: number | null;
+    shots_faced?: number | null;
+  };
+  let intlRows = (intlPrimary.data ?? []) as IntlStatRow[];
+  if (intlPrimary.error) {
+    const fb = await supabase
+      .from("player_international_stats")
+      .select(
+        "season_label, competition_slug, caps, goals_for_country, saves_for_country, average_rating",
+      )
+      .eq("player_id", id)
+      .order("season_label", { ascending: false });
+    intlRows = (fb.data ?? []) as IntlStatRow[];
+  }
 
   const { data: awardRows } = await supabase
     .from("season_player_awards")
@@ -155,6 +185,40 @@ export default async function PlayerPage({
     list.sort((x, y) => x.localeCompare(y, undefined, { numeric: true }));
   }
 
+  const PERSONAL_SLUGS = new Set(["ballon_dor", "palm_dor"]);
+  const INTL_SLUGS = new Set(["world_cup", "nations_league", "gold_cup"]);
+
+  const fromAwardsPersonal: GroupedCabinet[] = [...awardGroups.entries()]
+    .filter(([at]) => PERSONAL_SLUGS.has(at))
+    .map(([at, seasons]) => ({
+      entry: { trophy_slug: at },
+      seasons: seasons.map((s) => ({ season: s })),
+    }));
+  const personalFromCabinet = filterCabinetBySlugs(
+    cabinetTrophies,
+    PERSONAL_SLUGS,
+  );
+  const personalHonours = sortCabinetGroups(
+    mergeGroupedBySlug([...fromAwardsPersonal, ...personalFromCabinet]),
+    "player_personal",
+    defMap,
+  );
+  const intlHonours = sortCabinetGroups(
+    filterCabinetBySlugs(cabinetTrophies, INTL_SLUGS),
+    "player_intl",
+    defMap,
+  );
+  const clubHonours = sortCabinetGroups(
+    filterCabinetExcludeSlugs(
+      filterCabinetExcludeSlugs(cabinetTrophies, PERSONAL_SLUGS),
+      INTL_SLUGS,
+    ),
+    "player_club",
+    defMap,
+  );
+  const hasHonoursSection =
+    personalHonours.length + intlHonours.length + clubHonours.length > 0;
+
   const chartData =
     history?.map((h) => ({
       season: h.season_label,
@@ -171,9 +235,18 @@ export default async function PlayerPage({
     : null;
   const careerGoals = (statsRows ?? []).reduce((a, s) => a + (s.goals ?? 0), 0);
   const careerSaves = (statsRows ?? []).reduce((a, s) => a + (s.saves ?? 0), 0);
-  const intlCaps = (intlRows ?? []).reduce((a, r) => a + Number(r.caps ?? 0), 0);
   const intlGoals = (intlRows ?? []).reduce((a, r) => a + Number(r.goals_for_country ?? 0), 0);
   const intlSaves = (intlRows ?? []).reduce((a, r) => a + Number(r.saves_for_country ?? 0), 0);
+  const intlShotsTakenTotal = intlRows.reduce(
+    (a, r) => a + Number(r.shots_taken ?? 0),
+    0,
+  );
+  const intlShotsFacedTotal = intlRows.reduce(
+    (a, r) => a + Number(r.shots_faced ?? 0),
+    0,
+  );
+  const intlShotsDisplay =
+    player.role === "GK" ? intlShotsFacedTotal : intlShotsTakenTotal;
 
   const teamLogo = (team as { logo_url?: string } | null)?.logo_url;
 
@@ -464,92 +537,44 @@ export default async function PlayerPage({
         </section>
         </div>
 
-      {awardGroups.size > 0 && (
-        <section className="mt-8">
-          <h2 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
-            <Trophy className="h-4 w-4 text-amber-500" />
-            Awards
-          </h2>
-          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {[...awardGroups.entries()].map(([awardType, seasons]) => {
-              const slug =
-                awardType === "ballon_dor" ? "ballon_dor" : "palm_dor";
-              const { label, iconUrl } = resolveTrophyDisplay(
-                { trophy_slug: slug, season: seasons[0] },
-                defMap,
-              );
-              return (
-                <li
-                  key={awardType}
-                  className="flex flex-col items-center rounded-2xl border border-amber-200/90 bg-amber-50/80 p-4 text-center shadow-sm"
-                >
-                  <div className="mb-2 flex h-14 w-14 items-center justify-center">
-                    <TrophyIconDisplay iconUrl={iconUrl} />
-                  </div>
-                  <span className="text-sm font-bold text-amber-950">{label}</span>
-                  <span className="mt-1 text-xs font-semibold text-amber-900">
-                    {seasons.join(" · ")}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
-
-      {cabinetTrophies.length > 0 && (
+      {hasHonoursSection && (
         <section className="mt-8">
           <h2 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
             <Trophy className="h-4 w-4 text-amber-500" />
             Honours
           </h2>
-          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {cabinetTrophies.map(({ entry: tr, seasons }, i) => {
-              const { label, iconUrl } = resolveTrophyDisplay(tr, defMap);
-              const seasonKey = seasons
-                .map((s) => `${s.season}:${s.won_with ?? ""}`)
-                .join(",");
-              return (
-                <li
-                  key={`cab-${label}-${seasonKey}-${i}`}
-                  className="flex flex-col items-center rounded-2xl border border-slate-300/90 bg-white p-4 text-center shadow-sm"
-                >
-                  <div className="mb-2 flex h-14 w-14 items-center justify-center">
-                    <TrophyIconDisplay iconUrl={iconUrl} />
-                  </div>
-                  {seasons.length > 1 && (
-                    <span className="mb-0.5 text-xs font-bold text-slate-900">×{seasons.length}</span>
-                  )}
-                  <span className="text-sm font-bold text-slate-900">{label}</span>
-                  {seasons.length > 0 && (
-                    <ul className="mt-1 w-full space-y-0.5 text-xs font-medium text-slate-500">
-                      {seasons.map((sd) => {
-                        const wwFlag = sd.won_with ? wonWithFlagMap.get(sd.won_with) : undefined;
-                        const wwLogo = sd.won_with ? wonWithLogoMap.get(sd.won_with) : undefined;
-                        return (
-                          <li key={`${sd.season}-${sd.won_with ?? ""}`} className="flex items-center justify-center gap-1">
-                            <span className="font-semibold text-slate-700">{sd.season}</span>
-                            {sd.won_with && (
-                              <span className="flex items-center gap-1 text-slate-600">
-                                ·
-                                {wwLogo ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={wwLogo} alt="" className="h-3.5 w-3.5 rounded object-contain" />
-                                ) : wwFlag ? (
-                                  <span className="leading-none">{wwFlag}</span>
-                                ) : null}
-                                {formatHonourWonWithDisplay(sd.won_with)}
-                              </span>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+          <div className="space-y-5">
+            {personalHonours.length > 0 && (
+              <HonourCategoryBlock label="Personal">
+                <HonourCabinetChips
+                  groups={personalHonours}
+                  defMap={defMap}
+                  wonWithFlagMap={wonWithFlagMap}
+                  wonWithLogoMap={wonWithLogoMap}
+                />
+              </HonourCategoryBlock>
+            )}
+            {intlHonours.length > 0 && (
+              <HonourCategoryBlock label="International">
+                <HonourCabinetChips
+                  groups={intlHonours}
+                  defMap={defMap}
+                  wonWithFlagMap={wonWithFlagMap}
+                  wonWithLogoMap={wonWithLogoMap}
+                />
+              </HonourCategoryBlock>
+            )}
+            {clubHonours.length > 0 && (
+              <HonourCategoryBlock label="Club">
+                <HonourCabinetChips
+                  groups={clubHonours}
+                  defMap={defMap}
+                  wonWithFlagMap={wonWithFlagMap}
+                  wonWithLogoMap={wonWithLogoMap}
+                />
+              </HonourCategoryBlock>
+            )}
+          </div>
         </section>
       )}
 
@@ -687,8 +712,10 @@ export default async function PlayerPage({
           className={`grid gap-3 ${player.role === "ST" || player.role === "GK" ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}
         >
           <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
-            <p className="text-xs uppercase tracking-wide text-slate-500">Caps</p>
-            <p className="mt-1 text-2xl font-black text-slate-900">{intlCaps}</p>
+            <p className="text-xs uppercase tracking-wide text-slate-500">
+              Shots (international)
+            </p>
+            <p className="mt-1 text-2xl font-black text-slate-900">{intlShotsDisplay}</p>
           </div>
           {player.role !== "GK" && (
             <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
@@ -711,6 +738,7 @@ export default async function PlayerPage({
                   <th className="px-4 py-2">Season</th>
                   <th className="px-4 py-2">Competition</th>
                   <th className="px-4 py-2 text-right">Caps</th>
+                  <th className="px-4 py-2 text-right">Shots</th>
                   {player.role !== "GK" ?
                     <th className="px-4 py-2 text-right">Goals</th>
                   : null}
@@ -724,8 +752,27 @@ export default async function PlayerPage({
                 {(intlRows ?? []).map((r, idx) => (
                   <tr key={`${r.season_label}-${r.competition_slug}-${idx}`} className="border-t border-slate-100">
                     <td className="px-4 py-2 font-semibold text-slate-900">{r.season_label}</td>
-                    <td className="px-4 py-2 text-slate-700">{r.competition_slug.replaceAll("_", " ")}</td>
+                    <td className="px-4 py-2 text-slate-700">
+                      <span className="inline-flex items-center gap-2">
+                        {(r.competition_slug === "nations_league" ||
+                          r.competition_slug === "gold_cup" ||
+                          r.competition_slug === "world_cup") ?
+                          <CompetitionBrandLogo
+                            slug={r.competition_slug}
+                            className="h-6 w-6 shrink-0"
+                          />
+                        : null}
+                        <span className="font-medium">
+                          {formatInternationalCompetitionLabel(r.competition_slug)}
+                        </span>
+                      </span>
+                    </td>
                     <td className="px-4 py-2 text-right font-mono">{r.caps ?? 0}</td>
+                    <td className="px-4 py-2 text-right font-mono">
+                      {player.role === "GK" ?
+                        Number(r.shots_faced ?? 0)
+                      : Number(r.shots_taken ?? 0)}
+                    </td>
                     {player.role !== "GK" ?
                       <td className="px-4 py-2 text-right font-mono">{r.goals_for_country ?? 0}</td>
                     : null}

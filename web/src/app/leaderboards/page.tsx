@@ -2,7 +2,10 @@ import Link from "next/link";
 import { BarChart3, Goal, Shield } from "lucide-react";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
-import { fetchSeasonSavedMatchLeaderboards } from "@/lib/seasonLeaderboards";
+import {
+  fetchSeasonCombinedSavedAndIntlLeaderboards,
+  fetchSeasonSavedMatchLeaderboards,
+} from "@/lib/seasonLeaderboards";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 
 export const revalidate = 60;
@@ -44,16 +47,21 @@ export default async function LeaderboardsPage({
   let topSavers: { playerId: string; saves: number; name: string; role: string | null; pic: string | null; team: string | null; logo: string | null }[] = [];
 
   if (season) {
-    const raw = await fetchSeasonSavedMatchLeaderboards(supabase, {
-      seasonLabel: season,
-      competition:
-        scope === "all" ? null
-        : scope === "league" ? "league"
-        : scope,
-      leagueId: scope === "league" && leagueId ? leagueId : null,
-      cupCountry: scope === "regional_cup" && cupCountry ? cupCountry : null,
-      limit: 12,
-    });
+    const raw =
+      scope === "all" ?
+        await fetchSeasonCombinedSavedAndIntlLeaderboards(supabase, {
+          seasonLabel: season,
+          limit: 12,
+        })
+      : await fetchSeasonSavedMatchLeaderboards(supabase, {
+          seasonLabel: season,
+          competition:
+            scope === "league" ? "league"
+            : scope,
+          leagueId: scope === "league" && leagueId ? leagueId : null,
+          cupCountry: scope === "regional_cup" && cupCountry ? cupCountry : null,
+          limit: 12,
+        });
 
     const ids = [
       ...new Set([

@@ -106,14 +106,14 @@ export default async function RankingsPage({
 
   const statHead =
     role === "GK" ?
-      scope === "career" ? "Saves (career)"
+      scope === "career" ? "Saves (career, incl. intl)"
       : scope === "season" ? "Saves (season)"
       : "Saves"
     : role === "ST" ?
-      scope === "career" ? "Goals (career)"
+      scope === "career" ? "Goals (career, incl. intl)"
       : scope === "season" ? "Goals (season)"
       : "Goals"
-    : scope === "career" ? "Goals / saves (career)"
+    : scope === "career" ? "Goals / saves (career, incl. intl)"
     : scope === "season" ? "Goals / saves (season)"
     : "Goals / saves";
 
@@ -204,7 +204,7 @@ export default async function RankingsPage({
               defaultValue={scope}
               className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-medium"
             >
-              <option value="career">Domestic career</option>
+              <option value="career">Full career (domestic + international)</option>
               <option value="season">Domestic season</option>
               <option value="world_cup">World Cup (intl)</option>
               <option value="nations_league">Nations League (intl)</option>
@@ -428,7 +428,11 @@ export default async function RankingsPage({
             <strong className="font-semibold text-slate-800">Avg</strong> uses season averages when
             scope is domestic season / CL proxy; otherwise it is a career-weighted domestic average.
           </li>
-          <li>International tournaments use the international stats ledger (caps/goals/saves).</li>
+          <li>
+            International tournaments use the international stats ledger (caps/goals/saves). The main stat column for
+            <strong className="font-semibold text-slate-800"> Full career</strong> adds international goals and saves to
+            domestic totals.
+          </li>
         </ul>
       </section>
     </div>

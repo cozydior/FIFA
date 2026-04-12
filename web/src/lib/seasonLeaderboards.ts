@@ -8,27 +8,20 @@ function asPlayerResults(raw: unknown): { id: string; goals?: number; saves?: nu
   );
 }
 
-/**
- * Aggregate goals / saves from saved Matchday rows joined to fixtures for competition scope.
- */
-export async function fetchSeasonSavedMatchLeaderboards(
-  supabase: SupabaseClient,
-  args: {
-    seasonLabel: string;
-    /** e.g. champions_league, regional_cup, league */
-    competition?: string | null;
-    /** Domestic league id when scoping a single league */
-    leagueId?: string | null;
-    /** For regional_cup — country name on the fixture (e.g. England) */
-    cupCountry?: string | null;
-    limit?: number;
-  },
-): Promise<{
-  topScorers: { playerId: string; goals: number }[];
-  topSavers: { playerId: string; saves: number }[];
-}> {
-  const limit = args.limit ?? 15;
+type DomesticScope = {
+  seasonLabel: string;
+  competition?: string | null;
+  leagueId?: string | null;
+  cupCountry?: string | null;
+};
 
+/**
+ * Full domestic totals from saved Matchday rows (before top-N slice).
+ */
+export async function aggregateDomesticSavedMatchGoalsSaves(
+  supabase: SupabaseClient,
+  args: DomesticScope,
+): Promise<{ goals: Map<string, number>; saves: Map<string, number> }> {
   const { data: savedRows, error } = await supabase
     .from("saved_sim_matches")
     .select("player_results, fixture_id")
@@ -79,6 +72,91 @@ export async function fetchSeasonSavedMatchLeaderboards(
       if (s > 0) savesMap.set(p.id, (savesMap.get(p.id) ?? 0) + s);
     }
   }
+
+  return { goals: goalsMap, saves: savesMap };
+}
+
+async function aggregateIntlGoalsSavesForSeason(
+  supabase: SupabaseClient,
+  seasonLabel: string,
+): Promise<{ goals: Map<string, number>; saves: Map<string, number> }> {
+  const { data, error } = await supabase
+    .from("player_international_stats")
+    .select("player_id, goals_for_country, saves_for_country")
+    .eq("season_label", seasonLabel);
+  if (error) throw new Error(error.message);
+  const goals = new Map<string, number>();
+  const saves = new Map<string, number>();
+  for (const r of data ?? []) {
+    const id = r.player_id as string;
+    goals.set(id, (goals.get(id) ?? 0) + Number(r.goals_for_country ?? 0));
+    saves.set(id, (saves.get(id) ?? 0) + Number(r.saves_for_country ?? 0));
+  }
+  return { goals, saves };
+}
+
+function isDomesticOnlyScope(args: DomesticScope): boolean {
+  return !!(
+    args.competition ||
+    args.leagueId ||
+    (args.competition === "regional_cup" && args.cupCountry)
+  );
+}
+
+/**
+ * Saved Matchday totals **plus** international tournament goals/saves for the same season label.
+ * Use when showing an “all competitions” view. Scoped domestic-only queries skip the intl merge.
+ */
+export async function fetchSeasonCombinedSavedAndIntlLeaderboards(
+  supabase: SupabaseClient,
+  args: DomesticScope & { limit?: number },
+): Promise<{
+  topScorers: { playerId: string; goals: number }[];
+  topSavers: { playerId: string; saves: number }[];
+}> {
+  const limit = args.limit ?? 15;
+  if (isDomesticOnlyScope(args)) {
+    return fetchSeasonSavedMatchLeaderboards(supabase, args);
+  }
+
+  const [{ goals: dg, saves: ds }, { goals: ig, saves: isv }] = await Promise.all([
+    aggregateDomesticSavedMatchGoalsSaves(supabase, args),
+    aggregateIntlGoalsSavesForSeason(supabase, args.seasonLabel),
+  ]);
+
+  const goals = new Map(dg);
+  for (const [pid, v] of ig) goals.set(pid, (goals.get(pid) ?? 0) + v);
+  const saves = new Map(ds);
+  for (const [pid, v] of isv) saves.set(pid, (saves.get(pid) ?? 0) + v);
+
+  const topScorers = [...goals.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([playerId, goalsN]) => ({ playerId, goals: goalsN }));
+
+  const topSavers = [...saves.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([playerId, savesN]) => ({ playerId, saves: savesN }));
+
+  return { topScorers, topSavers };
+}
+
+/**
+ * Aggregate goals / saves from saved Matchday rows joined to fixtures for competition scope.
+ */
+export async function fetchSeasonSavedMatchLeaderboards(
+  supabase: SupabaseClient,
+  args: DomesticScope & { limit?: number },
+): Promise<{
+  topScorers: { playerId: string; goals: number }[];
+  topSavers: { playerId: string; saves: number }[];
+}> {
+  const limit = args.limit ?? 15;
+  const { goals: goalsMap, saves: savesMap } = await aggregateDomesticSavedMatchGoalsSaves(
+    supabase,
+    args,
+  );
 
   const topScorers = [...goalsMap.entries()]
     .sort((a, b) => b[1] - a[1])

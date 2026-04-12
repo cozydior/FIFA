@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { fetchSeasonSavedMatchLeaderboards } from "@/lib/seasonLeaderboards";
+import {
+  fetchSeasonCombinedSavedAndIntlLeaderboards,
+  fetchSeasonSavedMatchLeaderboards,
+} from "@/lib/seasonLeaderboards";
 
 export async function GET(req: Request) {
   try {
@@ -14,12 +17,17 @@ export async function GET(req: Request) {
     const cupCountry = searchParams.get("cupCountry")?.trim() || null;
 
     const supabase = getSupabaseAdmin();
-    const { topScorers, topSavers } = await fetchSeasonSavedMatchLeaderboards(supabase, {
-      seasonLabel: season,
-      competition,
-      leagueId,
-      cupCountry,
-    });
+    const useCombined = !competition && !leagueId && !cupCountry;
+    const { topScorers, topSavers } = useCombined ?
+      await fetchSeasonCombinedSavedAndIntlLeaderboards(supabase, {
+        seasonLabel: season,
+      })
+    : await fetchSeasonSavedMatchLeaderboards(supabase, {
+        seasonLabel: season,
+        competition,
+        leagueId,
+        cupCountry,
+      });
 
     const ids = [...new Set([...topScorers.map((x) => x.playerId), ...topSavers.map((x) => x.playerId)])];
     const { data: players } =

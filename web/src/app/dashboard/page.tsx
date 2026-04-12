@@ -23,15 +23,20 @@ import {
   type DomesticCupRoll,
 } from "@/lib/competitionHistory";
 import { cupNameForCountry, cupLogoForCountry } from "@/lib/countryCups";
-import { fetchSeasonSavedMatchLeaderboards } from "@/lib/seasonLeaderboards";
+import {
+  fetchSeasonCombinedSavedAndIntlLeaderboards,
+  fetchSeasonSavedMatchLeaderboards,
+} from "@/lib/seasonLeaderboards";
 import type { DashboardUpcomingClub } from "@/lib/dashboardData";
 import { formatMoneyPounds } from "@/lib/formatMoney";
 import { formatLeagueNameForDisplay } from "@/lib/trophyCabinet";
-import { getSimPreviewTestMode } from "@/lib/appSettings";
+import { getSimPreviewTestMode, getTournamentsMode } from "@/lib/appSettings";
 import { InternationalTournamentActionBar } from "@/components/InternationalTournamentActionBar";
+import { NationalTeamHonourLink } from "@/components/NationalTeamHonourLink";
 import { ChampionsLeagueTournamentBoard } from "@/components/ChampionsLeagueTournamentBoard";
 import { TournamentGroupStageTable } from "@/components/TournamentGroupStageTable";
 import { LEAGUE_STYLE_TIEBREAK_BLURB } from "@/lib/standings";
+import { sortInternationalGroupNames } from "@/lib/internationalGroupOrder";
 
 export const dynamic = "force-dynamic";
 type DashboardData = Awaited<ReturnType<typeof getDashboardSummary>>;
@@ -150,6 +155,7 @@ export default async function DashboardPage({
   const nav = resolveDashboardNav(sp);
   const honoursView = sp.view === "honours";
   const previewEnabled = await getSimPreviewTestMode();
+  const tournamentsMode = await getTournamentsMode();
 
   let data: DashboardData | null = null;
   let error: string | null = null;
@@ -227,8 +233,9 @@ export default async function DashboardPage({
     const groupsDone =
       groupFixtures.length === 0 ||
       groupFixtures.every((f: any) => f.status === "completed");
-    const groupTables = [...new Set(groupFixtures.map((f: any) => f.group_name).filter(Boolean))].map(
-      (g) => {
+    const groupTables = sortInternationalGroupNames(
+      [...new Set(groupFixtures.map((f: any) => f.group_name).filter(Boolean))] as string[],
+    ).map((g) => {
       const gf = groupFixtures.filter((f: any) => f.group_name === g);
       const ids = [...new Set(gf.flatMap((f: any) => [f.home_national_team_id, f.away_national_team_id]))];
       const gt = computeInternationalTable(ids, gf as any, { teamSaves: intlTeamSaves });
@@ -447,7 +454,7 @@ export default async function DashboardPage({
   } | null = null;
   if (selectedSeason && nav.group === "rankings") {
     try {
-      const raw = await fetchSeasonSavedMatchLeaderboards(supabase, {
+      const raw = await fetchSeasonCombinedSavedAndIntlLeaderboards(supabase, {
         seasonLabel: selectedSeason,
         limit: 12,
       });
@@ -1327,16 +1334,15 @@ export default async function DashboardPage({
                         {(honoursPayload as Awaited<ReturnType<typeof fetchInternationalRollOfHonour>>).map((r) => (
                           <tr key={r.seasonLabel} className="border-t border-slate-100">
                             <td className="px-3 py-2 font-mono text-xs text-slate-600">{r.seasonLabel}</td>
-                            <td className="px-3 py-2 font-semibold text-slate-900">
-                              <span className="mr-1.5">{r.winner.flag}</span>
-                              {r.winner.name}
+                            <td className="px-3 py-2">
+                              <NationalTeamHonourLink team={r.winner} />
                             </td>
                             <td className="px-3 py-2 text-slate-800">
                               {r.runnerUp ?
-                                <>
-                                  <span className="mr-1.5">{r.runnerUp.flag}</span>
-                                  {r.runnerUp.name}
-                                </>
+                                <NationalTeamHonourLink
+                                  team={r.runnerUp}
+                                  className="inline-flex items-center text-slate-800"
+                                />
                               : <span className="text-slate-400">—</span>}
                             </td>
                           </tr>
@@ -1368,6 +1374,7 @@ export default async function DashboardPage({
                           slug={intlSlug}
                           seasonLabel={selectedSeason}
                           previewEnabled={previewEnabled}
+                          allowBootstrap={intlSlug === "world_cup" || tournamentsMode}
                         />
                       : null}
                       <h3 className="flex items-center gap-2 text-lg font-bold text-slate-900">
@@ -1406,16 +1413,19 @@ export default async function DashboardPage({
                                           flag?: string;
                                           name?: string;
                                         };
+                                        const inner = (
+                                          <>
+                                            {row.flag} {row.name}
+                                          </>
+                                        );
                                         return row.countryCode ?
                                             <Link
                                               href={`/countries/${row.countryCode}`}
                                               className="hover:text-emerald-800 hover:underline"
                                             >
-                                              {row.flag} {row.name}
+                                              {inner}
                                             </Link>
-                                          : <>
-                                              {row.flag} {row.name}
-                                            </>;
+                                          : inner;
                                       }}
                                     />
                                   </div>
@@ -1432,16 +1442,19 @@ export default async function DashboardPage({
                                     flag?: string;
                                     name?: string;
                                   };
+                                  const inner = (
+                                    <>
+                                      {row.flag} {row.name}
+                                    </>
+                                  );
                                   return row.countryCode ?
                                       <Link
                                         href={`/countries/${row.countryCode}`}
                                         className="hover:text-emerald-800 hover:underline"
                                       >
-                                        {row.flag} {row.name}
+                                        {inner}
                                       </Link>
-                                    : <>
-                                        {row.flag} {row.name}
-                                      </>;
+                                    : inner;
                                 }}
                               />
                             </div>
@@ -1515,8 +1528,8 @@ export default async function DashboardPage({
                   <div>
                     <h3 className="text-lg font-bold text-slate-900">Goal &amp; save leaderboards</h3>
                     <p className="mt-1 max-w-xl text-sm text-slate-600">
-                      From saved Matchday games this season (all competitions). Use the full page for league / cup
-                      filters.
+                      Saved Matchday games this season (all domestic competitions) <strong>plus</strong> international
+                      tournament goals and saves for the same season label. Use the full page for league / cup filters.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">

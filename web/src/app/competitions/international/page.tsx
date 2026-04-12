@@ -2,13 +2,14 @@ import Link from "next/link";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { CompetitionBrandLogo } from "@/components/CompetitionBrandLogo";
 import { InternationalTournamentActionBar } from "@/components/InternationalTournamentActionBar";
-import { getSimPreviewTestMode } from "@/lib/appSettings";
+import { getSimPreviewTestMode, getTournamentsMode } from "@/lib/appSettings";
 import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
 
 export const revalidate = 60;
 
 export default async function InternationalHubPage() {
   const previewEnabled = await getSimPreviewTestMode();
+  const tournamentsMode = await getTournamentsMode();
   const defaultSeason = (await getCurrentSeasonLabel()) ?? "";
   const supabase = getSupabaseAdmin();
   const { data: nts } = await supabase
@@ -91,6 +92,7 @@ export default async function InternationalHubPage() {
               slug="nations_league"
               seasonLabel={defaultSeason}
               previewEnabled={previewEnabled}
+              allowBootstrap={tournamentsMode}
             />
           : (
             <p className="mt-3 text-sm text-amber-800">Set a current season in Admin to enable start buttons.</p>
@@ -109,6 +111,7 @@ export default async function InternationalHubPage() {
               slug="gold_cup"
               seasonLabel={defaultSeason}
               previewEnabled={previewEnabled}
+              allowBootstrap={tournamentsMode}
             />
           : (
             <p className="mt-3 text-sm text-amber-800">Set a current season in Admin to enable start buttons.</p>
@@ -128,6 +131,7 @@ export default async function InternationalHubPage() {
               slug="world_cup"
               seasonLabel={defaultSeason}
               previewEnabled={previewEnabled}
+              allowBootstrap
             />
           : (
             <p className="mt-3 text-sm text-amber-800">Set a current season in Admin to enable start buttons.</p>

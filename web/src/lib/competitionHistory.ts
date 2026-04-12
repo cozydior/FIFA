@@ -13,6 +13,8 @@ export type NationalHonourRef = {
   id: string;
   name: string;
   flag: string;
+  /** Lowercase ISO code when linked to `countries` (for profile links). */
+  countryCode?: string | null;
 };
 
 export type DomesticLeagueRoll = {
@@ -221,12 +223,22 @@ export async function fetchInternationalRollOfHonour(
 
   const { data: ntRows } = await supabase
     .from("national_teams")
-    .select("id, name, flag_emoji");
+    .select("id, name, flag_emoji, countries(code)");
   const ntMap = new Map(
-    (ntRows ?? []).map((t) => [
-      t.id,
-      { name: t.name, flag: (t.flag_emoji as string | null) ?? "🏳️" },
-    ]),
+    (ntRows ?? []).map((t) => {
+      const c = t.countries as { code?: string } | { code?: string }[] | null;
+      const raw = Array.isArray(c) ? c[0]?.code : c?.code;
+      const code =
+        typeof raw === "string" && raw.trim() ? raw.trim().toLowerCase() : null;
+      return [
+        t.id,
+        {
+          name: t.name,
+          flag: (t.flag_emoji as string | null) ?? "🏳️",
+          countryCode: code,
+        },
+      ] as const;
+    }),
   );
 
   const out: {
@@ -262,9 +274,21 @@ export async function fetchInternationalRollOfHonour(
 
     out.push({
       seasonLabel: c.season_label,
-      winner: { id: wid, name: wNt.name, flag: wNt.flag },
+      winner: {
+        id: wid,
+        name: wNt.name,
+        flag: wNt.flag,
+        countryCode: wNt.countryCode,
+      },
       runnerUp:
-        rNt ? { id: rid, name: rNt.name, flag: rNt.flag } : null,
+        rNt ?
+          {
+            id: rid,
+            name: rNt.name,
+            flag: rNt.flag,
+            countryCode: rNt.countryCode,
+          }
+        : null,
     });
   }
 

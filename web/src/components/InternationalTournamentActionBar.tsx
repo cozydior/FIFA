@@ -15,11 +15,14 @@ export function InternationalTournamentActionBar({
   slug,
   seasonLabel,
   previewEnabled,
+  allowBootstrap = true,
   className,
 }: {
   slug: Slug;
   seasonLabel: string;
   previewEnabled: boolean;
+  /** When false, hides the live "Generate …" bootstrap (e.g. until Admin tournaments mode is on). */
+  allowBootstrap?: boolean;
   className?: string;
 }) {
   const [busy, setBusy] = useState(false);
@@ -132,15 +135,22 @@ export function InternationalTournamentActionBar({
         >
           Open {LABEL[slug]} →
         </Link>
-        <button
-          type="button"
-          disabled={busy || gatesLoading || !canStart}
-          title={reason ?? undefined}
-          onClick={() => void startTournament()}
-          className="rounded-lg border border-emerald-600 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-950 hover:bg-emerald-100 disabled:opacity-50"
-        >
-          {gatesLoading ? "Checking gates…" : genLabel}
-        </button>
+        {allowBootstrap ?
+          <button
+            type="button"
+            disabled={busy || gatesLoading || !canStart}
+            title={reason ?? undefined}
+            onClick={() => void startTournament()}
+            className="rounded-lg border border-emerald-600 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-950 hover:bg-emerald-100 disabled:opacity-50"
+          >
+            {gatesLoading ? "Checking gates…" : genLabel}
+          </button>
+        : slug !== "world_cup" ?
+          <p className="text-xs text-slate-600">
+            Turn on <strong className="text-slate-800">Tournaments mode</strong> in Admin → Season to show{" "}
+            <strong className="text-slate-800">{genLabel}</strong>.
+          </p>
+        : null}
       </div>
       {!gatesLoading && reason ?
         <p className="text-xs text-amber-900">{reason}</p>

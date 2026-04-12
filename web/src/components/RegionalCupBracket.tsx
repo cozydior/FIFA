@@ -66,7 +66,7 @@ function TieCard(props: {
   const richLine = f.scoreDisplay?.trim();
 
   return (
-    <div className="rounded-lg border border-slate-200/90 bg-white px-3 py-2.5 shadow-sm">
+    <div className="w-full min-w-0 rounded-lg border border-slate-200/90 bg-white px-3 py-2.5 shadow-sm">
       <p className="text-[0.65rem] font-bold uppercase tracking-wide text-slate-500">
         {props.slotLabel ?
           <span className="mr-2 rounded bg-indigo-100 px-1.5 py-0.5 font-mono text-indigo-900">
@@ -79,7 +79,7 @@ function TieCard(props: {
         <div className="flex items-center justify-between gap-2">
           <Link
             href={`/team/${f.home_team_id}`}
-            className={`inline-flex min-w-0 max-w-[min(100%,14rem)] flex-1 items-center gap-1.5 hover:text-emerald-800 hover:underline sm:max-w-none ${
+            className={`inline-flex min-w-0 flex-1 items-center gap-1.5 hover:text-emerald-800 hover:underline ${
               hWin ? "rounded px-1.5 py-0.5 font-bold text-emerald-950 bg-emerald-100" : "text-slate-800"
             }`}
           >
@@ -91,7 +91,7 @@ function TieCard(props: {
                 className="h-7 w-7 shrink-0 rounded-md object-contain"
               />
             : null}
-            <span className="min-w-0 truncate">{props.homeName}</span>
+            <span className="min-w-0 flex-1 truncate">{props.homeName}</span>
             {props.homeDivision ? <DivisionBadge division={props.homeDivision} /> : null}
           </Link>
           {done ?
@@ -103,7 +103,7 @@ function TieCard(props: {
         <div className="flex items-center justify-between gap-2">
           <Link
             href={`/team/${f.away_team_id}`}
-            className={`inline-flex min-w-0 max-w-[min(100%,14rem)] flex-1 items-center gap-1.5 hover:text-emerald-800 hover:underline sm:max-w-none ${
+            className={`inline-flex min-w-0 flex-1 items-center gap-1.5 hover:text-emerald-800 hover:underline ${
               aWin ? "rounded px-1.5 py-0.5 font-bold text-emerald-950 bg-emerald-100" : "text-slate-800"
             }`}
           >
@@ -115,7 +115,7 @@ function TieCard(props: {
                 className="h-7 w-7 shrink-0 rounded-md object-contain"
               />
             : null}
-            <span className="min-w-0 truncate">{props.awayName}</span>
+            <span className="min-w-0 flex-1 truncate">{props.awayName}</span>
             {props.awayDivision ? <DivisionBadge division={props.awayDivision} /> : null}
           </Link>
           {done ?
@@ -185,7 +185,6 @@ export function RegionalCupBracket(props: {
         {rounds.flatMap(([roundKey, list], index) => {
           const sorted = [...list].sort(sortInRound);
           const isLast = index === rounds.length - 1;
-          const isQf = roundKey === "QF";
           const slotPrefix =
             roundKey === "QF" ? "QF"
             : roundKey === "SF" ? "SF"
@@ -201,13 +200,7 @@ export function RegionalCupBracket(props: {
               <p className="text-[0.65rem] font-bold uppercase tracking-wider text-slate-500">
                 {roundLabel(roundKey === "OTHER" ? null : roundKey)}
               </p>
-              <div
-                className={
-                  isQf ?
-                    "grid grid-cols-1 gap-3 sm:grid-cols-2"
-                  : "flex flex-col gap-4"
-                }
-              >
+              <div className="flex min-w-0 flex-col gap-4">
                 {sorted.map((f, i) => (
                   <TieCard
                     key={f.id}

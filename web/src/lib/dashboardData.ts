@@ -196,8 +196,8 @@ export async function getDashboardSummary(seasonOverride?: string) {
     if (c.competition === "league") {
       const cp = COUNTRY_PRIORITY[c.leagueCountry] ?? 3;
       const dp = DIVISION_PRIORITY[c.leagueDivision] ?? 2;
-      // D1 England=0, D1 Spain=1, D1 France=2, D2 England=4, D2 Spain=5, D2 France=6
-      return cp + dp * 4;
+      // Per week: England D1, D2 → Spain D1, D2 → France D1, D2
+      return cp * 3 + dp;
     }
     if (c.competition === "regional_cup") return 20 + (COUNTRY_PRIORITY[c.leagueCountry] ?? 3);
     if (c.competition === "champions_league") return 30;

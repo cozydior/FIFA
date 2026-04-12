@@ -1620,31 +1620,31 @@ export default async function DashboardPage({
                         {m.weekLabel}
                         <span className="ml-2 font-semibold text-indigo-950">{m.competitionLabel}</span>
                       </p>
-                      <div className="mt-2 flex flex-wrap items-center gap-2 font-bold text-slate-900">
+                      <div className="mt-2 flex flex-nowrap items-center gap-1.5 text-sm font-bold text-slate-900">
                         {m.homeCode ?
                           <Link
                             href={`/countries/${m.homeCode}`}
-                            className="inline-flex items-center gap-2 hover:text-emerald-800 hover:underline"
+                            className="inline-flex min-w-0 items-center gap-1.5 hover:text-emerald-800 hover:underline"
                           >
-                            <span className="text-lg leading-none">{m.homeFlag}</span>
-                            {m.homeName}
+                            <span className="shrink-0 text-base leading-none">{m.homeFlag}</span>
+                            <span className="truncate">{m.homeName}</span>
                           </Link>
-                        : <span className="inline-flex items-center gap-2">
-                            <span className="text-lg leading-none">{m.homeFlag}</span>
-                            {m.homeName}
+                        : <span className="inline-flex min-w-0 items-center gap-1.5">
+                            <span className="shrink-0 text-base leading-none">{m.homeFlag}</span>
+                            <span className="truncate">{m.homeName}</span>
                           </span>}
-                        <span className="font-normal text-slate-400">v</span>
+                        <span className="shrink-0 font-normal text-slate-400">v</span>
                         {m.awayCode ?
                           <Link
                             href={`/countries/${m.awayCode}`}
-                            className="inline-flex items-center gap-2 hover:text-emerald-800 hover:underline"
+                            className="inline-flex min-w-0 items-center gap-1.5 hover:text-emerald-800 hover:underline"
                           >
-                            <span className="text-lg leading-none">{m.awayFlag}</span>
-                            {m.awayName}
+                            <span className="shrink-0 text-base leading-none">{m.awayFlag}</span>
+                            <span className="truncate">{m.awayName}</span>
                           </Link>
-                        : <span className="inline-flex items-center gap-2">
-                            <span className="text-lg leading-none">{m.awayFlag}</span>
-                            {m.awayName}
+                        : <span className="inline-flex min-w-0 items-center gap-1.5">
+                            <span className="shrink-0 text-base leading-none">{m.awayFlag}</span>
+                            <span className="truncate">{m.awayName}</span>
                           </span>}
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">
@@ -1691,35 +1691,35 @@ export default async function DashboardPage({
                       : null}
                       <span className="text-lg font-semibold tracking-tight text-slate-900">{m.weekLabel}</span>
                     </p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2 font-bold text-slate-900">
+                    <div className="mt-2 flex flex-nowrap items-center gap-1.5 text-sm font-bold text-slate-900">
                       <Link
                         href={`/team/${m.homeTeamId}`}
-                        className="inline-flex items-center gap-2 hover:text-emerald-800 hover:underline"
+                        className="inline-flex min-w-0 items-center gap-1.5 hover:text-emerald-800 hover:underline"
                       >
                         {h?.logo_url ?
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
                             src={h.logo_url}
                             alt=""
-                            className="h-8 w-8 rounded-md object-contain"
+                            className="h-5 w-5 shrink-0 rounded object-contain"
                           />
                         : null}
-                        {m.homeName}
+                        <span className="truncate">{m.homeName}</span>
                       </Link>
-                      <span className="font-normal text-slate-400">v</span>
+                      <span className="shrink-0 font-normal text-slate-400">v</span>
                       <Link
                         href={`/team/${m.awayTeamId}`}
-                        className="inline-flex items-center gap-2 hover:text-emerald-800 hover:underline"
+                        className="inline-flex min-w-0 items-center gap-1.5 hover:text-emerald-800 hover:underline"
                       >
                         {a?.logo_url ?
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
                             src={a.logo_url}
                             alt=""
-                            className="h-8 w-8 rounded-md object-contain"
+                            className="h-5 w-5 shrink-0 rounded object-contain"
                           />
                         : null}
-                        {m.awayName}
+                        <span className="truncate">{m.awayName}</span>
                       </Link>
                     </div>
                     <Link

@@ -28,6 +28,10 @@ export type DashboardUpcomingClub = {
   countryFlagEmoji: string | null;
   /** Show Champions League brand asset in UI */
   useClBrand: boolean;
+  /** League country for sorting (England / Spain / France / …) */
+  leagueCountry: string;
+  /** League division for sorting (D1 / D2 / …) */
+  leagueDivision: string;
 };
 
 export type DashboardUpcomingInternational = {
@@ -185,14 +189,28 @@ export async function getDashboardSummary(seasonOverride?: string) {
     });
   }
 
+  const COUNTRY_PRIORITY: Record<string, number> = { England: 0, Spain: 1, France: 2 };
+  const DIVISION_PRIORITY: Record<string, number> = { D1: 0, D2: 1 };
+
+  function clubSortKey(c: DashboardUpcomingClub): number {
+    if (c.competition === "league") {
+      const cp = COUNTRY_PRIORITY[c.leagueCountry] ?? 3;
+      const dp = DIVISION_PRIORITY[c.leagueDivision] ?? 2;
+      // D1 England=0, D1 Spain=1, D1 France=2, D2 England=4, D2 Spain=5, D2 France=6
+      return cp + dp * 4;
+    }
+    if (c.competition === "regional_cup") return 20;
+    if (c.competition === "champions_league") return 30;
+    return 40;
+  }
+
   const rawClub = (fixturesRaw ?? []).filter((f) => f.status === "scheduled");
   const clubUpcoming: DashboardUpcomingClub[] = rawClub
-    .sort((a, b) => a.week - b.week)
-    .slice(0, 8)
     .map((f) => {
       const home = teams?.find((t) => t.id === f.home_team_id);
       const away = teams?.find((t) => t.id === f.away_team_id);
       const comp = f.competition ?? "league";
+      const league = leagueById.get(f.league_id ?? "");
       const disp = clubCompetitionDisplay(
         {
           competition: f.competition,
@@ -217,7 +235,14 @@ export async function getDashboardSummary(seasonOverride?: string) {
         countryFlagEmoji: disp.countryFlagEmoji,
         useClBrand: disp.useClBrand,
         weekLabel: formatFixtureCalendarLabel(f.week, clubFixtureWeekKind(comp)),
+        leagueCountry: league?.country ?? f.country ?? "",
+        leagueDivision: league?.division ?? "",
       };
+    })
+    .sort((a, b) => {
+      const sk = clubSortKey(a) - clubSortKey(b);
+      if (sk !== 0) return sk;
+      return a.week - b.week;
     });
 
   const { data: intlComps } = await supabase
@@ -300,9 +325,12 @@ export async function getDashboardSummary(seasonOverride?: string) {
     });
   }
 
-  const upcoming: DashboardUpcoming[] = [...clubUpcoming, ...intlUpcoming]
-    .sort((x, y) => x.week - y.week || x.id.localeCompare(y.id))
-    .slice(0, 16);
+  // Club fixtures first (already sorted by league priority then week),
+  // international fixtures appended after, sorted by week among themselves.
+  const upcoming: DashboardUpcoming[] = [
+    ...clubUpcoming,
+    ...intlUpcoming.sort((a, b) => a.week - b.week || a.id.localeCompare(b.id)),
+  ].slice(0, 40);
 
   const teamName = new Map((teams ?? []).map((t) => [t.id, t.name]));
   const news = (txs ?? []).map((row) => ({

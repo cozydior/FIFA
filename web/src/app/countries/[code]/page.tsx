@@ -311,6 +311,71 @@ export default async function CountryPage({
     return s + Number(pl?.market_value ?? 0);
   }, 0);
 
+  /** Rank among all national teams (same count for pool MV and call-up MV). */
+  let poolValueRank: { rank: number; total: number } | null = null;
+  let callupValueRank: { rank: number; total: number } | null = null;
+
+  if (season.trim() && nt) {
+    const { data: ntAll } = await supabase
+      .from("national_teams")
+      .select("id, countries(name)")
+      .order("name");
+    const rows = ntAll ?? [];
+    const countryNames = [
+      ...new Set(
+        rows
+          .map((r) => {
+            const c = r.countries as { name?: string } | { name?: string }[] | null | undefined;
+            const one = Array.isArray(c) ? c[0] : c;
+            return typeof one?.name === "string" ? one.name : null;
+          })
+          .filter((n): n is string => Boolean(n)),
+      ),
+    ];
+    const ntIds = rows.map((r) => r.id as string);
+
+    if (countryNames.length > 0) {
+      const { data: poolPlayers } = await supabase
+        .from("players")
+        .select("nationality, market_value")
+        .in("nationality", countryNames);
+      const poolByName = new Map<string, number>();
+      for (const n of countryNames) poolByName.set(n, 0);
+      for (const p of poolPlayers ?? []) {
+        const nat = String(p.nationality ?? "");
+        if (!poolByName.has(nat)) continue;
+        poolByName.set(nat, (poolByName.get(nat) ?? 0) + Number(p.market_value ?? 0));
+      }
+      const poolValues = countryNames.map((n) => poolByName.get(n) ?? 0);
+      const strictlyGreaterPool = poolValues.filter((v) => v > totalPoolValue).length;
+      poolValueRank = {
+        rank: strictlyGreaterPool + 1,
+        total: countryNames.length,
+      };
+    }
+
+    if (ntIds.length > 0) {
+      const { data: allSeasonCallups } = await supabase
+        .from("national_team_callups")
+        .select("national_team_id, players(market_value)")
+        .eq("season_label", season);
+      const callupMvByNt = new Map<string, number>();
+      for (const id of ntIds) callupMvByNt.set(id, 0);
+      for (const row of allSeasonCallups ?? []) {
+        const tid = row.national_team_id as string;
+        if (!callupMvByNt.has(tid)) continue;
+        const pl = row.players as { market_value?: unknown } | null;
+        callupMvByNt.set(tid, (callupMvByNt.get(tid) ?? 0) + Number(pl?.market_value ?? 0));
+      }
+      const callupValues = ntIds.map((id) => callupMvByNt.get(id) ?? 0);
+      const strictlyGreaterCu = callupValues.filter((v) => v > calledUpValue).length;
+      callupValueRank = {
+        rank: strictlyGreaterCu + 1,
+        total: ntIds.length,
+      };
+    }
+  }
+
   const displayFlag =
     (country.flag_emoji as string | null) ??
     (nt?.flag_emoji as string | null) ??
@@ -348,8 +413,15 @@ export default async function CountryPage({
               <p className="text-[0.65rem] font-bold uppercase tracking-wider text-slate-500">
                 All nationals MV
               </p>
-              <p className="mt-0.5 font-mono text-sm font-bold text-slate-900">
-                {formatMoneyPounds(totalPoolValue)}
+              <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
+                {poolValueRank ?
+                  <span className="shrink-0 font-mono text-[0.7rem] font-bold tabular-nums text-slate-500">
+                    #{poolValueRank.rank}/{poolValueRank.total}
+                  </span>
+                : null}
+                <span className="font-mono text-sm font-bold text-slate-900">
+                  {formatMoneyPounds(totalPoolValue)}
+                </span>
               </p>
             </div>
             {callupsList.length > 0 && (
@@ -357,8 +429,15 @@ export default async function CountryPage({
                 <p className="text-[0.65rem] font-bold uppercase tracking-wider text-emerald-700">
                   Called-up squad MV
                 </p>
-                <p className="mt-0.5 font-mono text-sm font-bold text-slate-900">
-                  {formatMoneyPounds(calledUpValue)}
+                <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
+                  {callupValueRank ?
+                    <span className="shrink-0 font-mono text-[0.7rem] font-bold tabular-nums text-emerald-800/80">
+                      #{callupValueRank.rank}/{callupValueRank.total}
+                    </span>
+                  : null}
+                  <span className="font-mono text-sm font-bold text-slate-900">
+                    {formatMoneyPounds(calledUpValue)}
+                  </span>
                 </p>
               </div>
             )}

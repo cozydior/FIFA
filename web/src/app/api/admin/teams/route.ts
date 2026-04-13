@@ -6,12 +6,23 @@ const DEFAULT_BUDGET = 5_000_000;
 export async function GET() {
   try {
     const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from("teams")
-      .select("id, name, logo_url, current_balance")
-      .order("name");
+    const [{ data, error }, { data: playerRows, error: pe }] = await Promise.all([
+      supabase.from("teams").select("id, name, logo_url, current_balance").order("name"),
+      supabase.from("players").select("team_id, market_value"),
+    ]);
     if (error) throw error;
-    return NextResponse.json(data ?? []);
+    if (pe) throw pe;
+    const squadMvByTeam = new Map<string, number>();
+    for (const p of playerRows ?? []) {
+      const tid = p.team_id as string | null;
+      if (!tid) continue;
+      squadMvByTeam.set(tid, (squadMvByTeam.get(tid) ?? 0) + Number(p.market_value ?? 0));
+    }
+    const withSquad = (data ?? []).map((t) => ({
+      ...t,
+      squad_market_value: squadMvByTeam.get(t.id) ?? 0,
+    }));
+    return NextResponse.json(withSquad);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load teams";
     return NextResponse.json({ error: message }, { status: 500 });

@@ -35,6 +35,7 @@ import { TrophyTitleStars } from "@/components/TrophyTitleStars";
 import { HonourCabinetChips } from "@/components/HonourCabinetCompact";
 import { sortCabinetGroups } from "@/lib/honourDisplayOrder";
 import { formatMoneyPounds } from "@/lib/formatMoney";
+import { squadAnnualWageBill } from "@/lib/economy";
 import { formatFixtureCalendarLabel } from "@/lib/calendarPhases";
 import {
   clubCompetitionDisplay,
@@ -496,6 +497,8 @@ export default async function TeamPage({
     .reverse();
 
   const balance = Number(team.current_balance ?? 0);
+  const annualContracts = squadAnnualWageBill(totalSquadValue);
+  const canCoverWageBill = balance >= annualContracts;
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f1f5f9_0%,#f8fafc_12rem,#f1f5f9_100%)]">
@@ -572,13 +575,34 @@ export default async function TeamPage({
 
         <section className="mt-8">
         <div className="mb-6 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200/90 bg-white px-5 py-4 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Squad value
-            </p>
-            <p className="mt-1 text-xl font-black text-slate-900">
-              {formatMoneyPounds(totalSquadValue)}
-            </p>
+          <div
+            className={`rounded-2xl border px-5 py-4 shadow-sm ${
+              canCoverWageBill
+                ? "border-emerald-200/90 bg-gradient-to-br from-emerald-50/90 via-white to-white ring-1 ring-emerald-100/70"
+                : "border-red-200/90 bg-gradient-to-br from-red-50/90 via-white to-white ring-1 ring-red-100/70"
+            }`}
+          >
+            <div className="grid grid-cols-2 gap-4 divide-x divide-slate-200/80">
+              <div className="min-w-0 pr-2">
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Squad value
+                </p>
+                <p className="mt-1 text-xl font-black text-slate-900">
+                  {formatMoneyPounds(totalSquadValue)}
+                </p>
+              </div>
+              <div className="min-w-0 pl-2">
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Contracts
+                </p>
+                <p className="mt-1 text-xl font-black text-slate-900">
+                  {formatMoneyPounds(annualContracts)}
+                </p>
+                <p className="mt-1 text-[0.65rem] leading-snug text-slate-500">
+                  Annual wage bill (50% of squad MV). {canCoverWageBill ? "Balance covers it." : "Balance below this bill."}
+                </p>
+              </div>
+            </div>
           </div>
           <div className="rounded-2xl border border-slate-200/90 bg-white px-5 py-4 shadow-sm">
             <p className="text-xs font-bold uppercase tracking-wider text-slate-500">

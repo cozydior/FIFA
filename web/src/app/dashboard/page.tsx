@@ -170,7 +170,6 @@ export default async function DashboardPage({
     const existing = tablesByCountry.get(t.country) ?? [];
     tablesByCountry.set(t.country, [...existing, t]);
   }
-  const countries = [...tablesByCountry.keys()].sort();
   const supabase = getSupabaseAdmin();
   const [{ data: seasons }, { data: countriesDb }] = await Promise.all([
     supabase.from("seasons").select("label").order("created_at", { ascending: false }),
@@ -1793,22 +1792,6 @@ export default async function DashboardPage({
 
           <section className="rounded-2xl border border-slate-300/90 bg-white p-5 shadow-sm">
             <h2 className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
-              <Newspaper className="h-4 w-4 text-indigo-600" />
-              League coverage
-            </h2>
-            <p className="mb-3 text-sm text-slate-600">
-              Domestic leagues by country. Use{" "}
-              <strong>International</strong> in the bar above for Nations League, Gold Cup, and World Cup.
-            </p>
-            <ul className="mb-4 list-disc space-y-1 pl-5 text-sm text-slate-700">
-              {countries.map((c) => (
-                <li key={c}>{c}</li>
-              ))}
-            </ul>
-          </section>
-
-          <section className="rounded-2xl border border-slate-300/90 bg-white p-5 shadow-sm">
-            <h2 className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
               <Newspaper className="h-4 w-4 text-sky-600" />
               News wire
             </h2>
@@ -1819,19 +1802,42 @@ export default async function DashboardPage({
               {(data?.news ?? []).map((n) => (
                 <li
                   key={n.id}
-                  className="border-l-2 border-slate-200 pl-3 text-slate-700"
+                  className="flex gap-3 border-l-2 border-slate-200 py-0.5 pl-3 text-slate-700"
                 >
-                  <span
-                    className={
-                      n.amount >= 0 ?
-                        "font-mono font-bold text-emerald-700"
-                      : "font-mono font-bold text-red-600"
-                    }
-                  >
-                    {formatMoneyPounds(Number(n.amount))}
-                  </span>
-                  <span className="text-slate-500"> · </span>
-                  {n.headline}
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Link
+                      href={`/team/${n.teamId}`}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200/80 bg-white shadow-sm"
+                      title="Club"
+                    >
+                      {n.teamLogoUrl ?
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={n.teamLogoUrl} alt="" className="h-full w-full object-contain p-0.5" />
+                      : <span className="text-[0.65rem] font-bold text-slate-400">FC</span>}
+                    </Link>
+                    {n.player ?
+                      <Link href={`/player/${n.player.id}`} className="shrink-0" title={n.player.name}>
+                        <PlayerAvatar
+                          name={n.player.name}
+                          profilePicUrl={n.player.profilePicUrl}
+                          sizeClassName="h-9 w-9"
+                        />
+                      </Link>
+                    : null}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <span
+                      className={
+                        n.amount >= 0 ?
+                          "font-mono font-bold text-emerald-700"
+                        : "font-mono font-bold text-red-600"
+                      }
+                    >
+                      {formatMoneyPounds(Number(n.amount))}
+                    </span>
+                    <span className="text-slate-500"> · </span>
+                    <span className="text-slate-700">{n.headline}</span>
+                  </div>
                 </li>
               ))}
             </ul>

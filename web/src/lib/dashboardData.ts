@@ -13,6 +13,7 @@ import {
   clubCompetitionDisplay,
   clubFixtureWeekKind,
 } from "@/lib/matchCompetitionDisplay";
+import { parsePlayerNameFromTransferNote } from "@/lib/transferNotes";
 
 export type DashboardUpcomingClub = {
   kind: "club";
@@ -96,7 +97,7 @@ export async function getDashboardSummary(seasonOverride?: string) {
         .order("week"),
       supabase
         .from("team_transactions")
-        .select("id, amount, category, note, created_at, team_id")
+        .select("id, amount, category, note, created_at, team_id, teams(logo_url, name)")
         .order("created_at", { ascending: false })
         .limit(12),
       supabase.from("countries").select("name, flag_emoji, code"),
@@ -404,15 +405,66 @@ export async function getDashboardSummary(seasonOverride?: string) {
   const upcoming: DashboardUpcoming[] = [
     ...clubUpcoming,
     ...intlUpcoming.sort((a, b) => a.week - b.week || a.id.localeCompare(b.id)),
-  ].slice(0, 40);
+  ].slice(0, 3);
 
   const teamName = new Map((teams ?? []).map((t) => [t.id, t.name]));
-  const news = (txs ?? []).map((row) => ({
-    id: row.id,
-    headline: `${teamName.get(row.team_id) ?? "Club"} — ${row.note ?? row.category}`,
-    amount: row.amount,
-    created_at: row.created_at,
-  }));
+
+  type TxRow = {
+    id: string;
+    team_id: string;
+    amount: number;
+    category: string;
+    note: string | null;
+    created_at: string;
+    teams?: { logo_url?: string | null; name?: string } | { logo_url?: string | null; name?: string }[] | null;
+  };
+
+  function teamEmbedFromTx(row: TxRow): { name: string; logo_url: string | null } | null {
+    const rel = row.teams;
+    const t = Array.isArray(rel) ? rel[0] : rel;
+    if (!t?.name) return null;
+    return { name: t.name, logo_url: (t.logo_url as string | null) ?? null };
+  }
+
+  const txRows = (txs ?? []) as TxRow[];
+  const newsPlayerNames = [
+    ...new Set(
+      txRows
+        .map((row) => parsePlayerNameFromTransferNote(row.note))
+        .filter((n): n is string => Boolean(n)),
+    ),
+  ];
+  const { data: newsPlayers } =
+    newsPlayerNames.length > 0 ?
+      await supabase
+        .from("players")
+        .select("id, name, profile_pic_url")
+        .in("name", newsPlayerNames)
+    : { data: [] as { id: string; name: string; profile_pic_url: string | null }[] };
+  const playerByExactName = new Map((newsPlayers ?? []).map((p) => [p.name, p]));
+
+  const news = txRows.map((row) => {
+    const embed = teamEmbedFromTx(row);
+    const tname = embed?.name ?? teamName.get(row.team_id) ?? "Club";
+    const pname = parsePlayerNameFromTransferNote(row.note);
+    const pl = pname ? playerByExactName.get(pname) : undefined;
+    return {
+      id: row.id,
+      teamId: row.team_id,
+      headline: `${tname} — ${row.note ?? row.category}`,
+      amount: row.amount,
+      created_at: row.created_at,
+      teamLogoUrl: embed?.logo_url ?? allTeamsById.get(row.team_id)?.logo_url ?? null,
+      player:
+        pl ?
+          {
+            id: pl.id,
+            name: pl.name,
+            profilePicUrl: pl.profile_pic_url ?? null,
+          }
+        : null,
+    };
+  });
 
   let scheduleWarnings: string[] = [];
   try {

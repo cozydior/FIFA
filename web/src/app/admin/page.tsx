@@ -23,12 +23,13 @@ import {
   Users,
   Wallet,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { EndOfSeasonChecklistSection } from "@/components/admin/EndOfSeasonChecklistSection";
 import { formatApplyWagesResponseMessage } from "@/lib/formatApplyWagesMessage";
 import { parseTrophyList, type TrophyCabinetEntry } from "@/lib/trophyCabinet";
+import { squadAnnualWageBill } from "@/lib/economy";
 
 type League = {
   id: string;
@@ -38,7 +39,14 @@ type League = {
   logo_url: string | null;
 };
 
-type TeamOption = { id: string; name: string; logo_url?: string | null; current_balance?: number };
+type TeamOption = {
+  id: string;
+  name: string;
+  logo_url?: string | null;
+  current_balance?: number;
+  /** Sum of roster market values (for wage / transfer previews). */
+  squad_market_value?: number;
+};
 type CountryOption = { id: string; code: string; name: string };
 type NationalTeamOption = {
   id: string;
@@ -163,11 +171,10 @@ function AdminGuideSection() {
         <div>
           <h3 className="font-bold text-zinc-900">3. How players are paid (wages)</h3>
           <p className="mt-2">
-            There are no per-match salary line items. Once per season, <strong>Pay season wages</strong> (End of season checklist) charges each club{" "}
+            There are no per-match salary line items. Once per season, <strong>Pay season wages</strong> (Admin checklist → <strong>Beginning of season</strong>) charges each club{" "}
             <strong>50% of its squad&apos;s total market value</strong> (contract cost). That debit is one team transaction. On player profiles,{" "}
             <strong>Career salary earned</strong> increases each time wages run: each player on the roster is credited{" "}
-            <strong>50% of their own MV at that moment</strong> (those shares add up to the same team wage bill). Run Apply wages after you&apos;re done with a season&apos;s
-            roster moves, and only once per team per season label (the app tracks <code className="font-mono text-xs">last_wages_season</code>).
+            <strong>50% of their own MV at that moment</strong> (those shares add up to the same team wage bill). Run Apply wages when you want that season&apos;s bill (e.g. after advancing the season label), and only once per team per season label (the app tracks <code className="font-mono text-xs">last_wages_season</code>).
           </p>
         </div>
 
@@ -2593,6 +2600,39 @@ function TransferMarketSection({
 
   const selectedPlayer = players.find((p) => p.id === playerId);
 
+  const feeNumParsed = useMemo(() => {
+    const n = parseFloat(fee);
+    if (Number.isNaN(n) || n < 0) return null;
+    return Math.round(n);
+  }, [fee]);
+
+  const buyerAffordability = useMemo(() => {
+    if (!selectedPlayer || !toTeamId || feeNumParsed === null) return null;
+    if (selectedPlayer.team_id === toTeamId) return null;
+    const buyer = teams.find((t) => t.id === toTeamId);
+    if (!buyer) return null;
+    const balance = Number(buyer.current_balance ?? 0);
+    const buyerSquadMv = Number(buyer.squad_market_value ?? 0);
+    const playerMv = Number(selectedPlayer.market_value ?? 0);
+    const newSquadMv = buyerSquadMv + playerMv;
+    const contractsNow = squadAnnualWageBill(buyerSquadMv);
+    const contractsAfter = squadAnnualWageBill(newSquadMv);
+    const balanceAfterFee = balance - feeNumParsed;
+    const canPayFee = balance >= feeNumParsed;
+    const canCoverContractsAfter = balanceAfterFee >= contractsAfter;
+    return {
+      balance,
+      feeNumParsed,
+      balanceAfterFee,
+      buyerSquadMv,
+      newSquadMv,
+      contractsNow,
+      contractsAfter,
+      canPayFee,
+      canCoverContractsAfter,
+    };
+  }, [selectedPlayer, toTeamId, feeNumParsed, teams]);
+
   return (
     <section className="rounded-2xl border border-slate-300/90 bg-white p-6 shadow-sm">
       <div className="mb-4 flex items-center gap-2 text-zinc-900">
@@ -2673,6 +2713,55 @@ function TransferMarketSection({
             className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900"
           />
         </label>
+        {buyerAffordability && (
+          <div
+            className={`rounded-xl border px-3 py-3 text-xs ${
+              buyerAffordability.canPayFee && buyerAffordability.canCoverContractsAfter
+                ? "border-emerald-200 bg-emerald-50/80 text-zinc-800"
+                : "border-red-200 bg-red-50/80 text-zinc-800"
+            }`}
+          >
+            <p className="font-semibold text-zinc-900">Buyer before you confirm</p>
+            <ul className="mt-2 space-y-1.5 text-zinc-700">
+              <li className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span
+                  className={
+                    buyerAffordability.canPayFee ? "font-semibold text-emerald-800" : "font-semibold text-red-700"
+                  }
+                >
+                  {buyerAffordability.canPayFee ? "Can pay fee" : "Cannot pay fee"}
+                </span>
+                <span className="text-zinc-500">
+                  (balance £{buyerAffordability.balance.toLocaleString()} vs fee £
+                  {buyerAffordability.feeNumParsed.toLocaleString()})
+                </span>
+              </li>
+              <li className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span
+                  className={
+                    buyerAffordability.canCoverContractsAfter ?
+                      "font-semibold text-emerald-800"
+                    : "font-semibold text-red-700"
+                  }
+                >
+                  {buyerAffordability.canCoverContractsAfter ?
+                    "Cash after fee covers wage bill"
+                  : "Cash after fee may not cover wage bill"}
+                </span>
+                <span className="text-zinc-500">
+                  (50% of new squad MV ≈ £{buyerAffordability.contractsAfter.toLocaleString()} / yr; after fee £
+                  {buyerAffordability.balanceAfterFee.toLocaleString()})
+                </span>
+              </li>
+            </ul>
+            <p className="mt-2 border-t border-zinc-200/80 pt-2 text-[0.7rem] text-zinc-500">
+              Squad MV £{buyerAffordability.buyerSquadMv.toLocaleString()} → £
+              {buyerAffordability.newSquadMv.toLocaleString()} · Annual wage bill (50%) £
+              {buyerAffordability.contractsNow.toLocaleString()} → £
+              {buyerAffordability.contractsAfter.toLocaleString()}
+            </p>
+          </div>
+        )}
         {message && (
           <p
             className={

@@ -124,7 +124,8 @@ export function EndOfSeasonChecklistSection() {
               <p className="text-[0.65rem] font-bold uppercase tracking-wider text-zinc-500">Step 1</p>
               <p className="font-semibold text-zinc-900">Set player market values</p>
               <p className="mt-1 text-sm text-zinc-600">
-                Recalculate £ from hidden OVR (goalkeepers use a lower curve). Wages below use 50% of squad MV.
+                Recalculate £ from hidden OVR (goalkeepers use a lower curve). Season wages use 50% of squad MV (see
+                Beginning of season).
               </p>
             </div>
             <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-zinc-500">
@@ -280,45 +281,6 @@ export function EndOfSeasonChecklistSection() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[0.65rem] font-bold uppercase tracking-wider text-zinc-500">Step 4</p>
-              <p className="font-semibold text-zinc-900">Pay season wages (50% squad MV)</p>
-              <p className="mt-1 text-sm text-zinc-600">Charges each club based on current squad market values.</p>
-            </div>
-            <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-zinc-500">
-              <input
-                type="checkbox"
-                checked={doneWages}
-                onChange={(e) => setDoneWages(e.target.checked)}
-                className="rounded border-zinc-300"
-              />
-              Done
-            </label>
-          </div>
-          <button
-            type="button"
-            disabled={pending !== null}
-            className={`${btn} mt-3`}
-            onClick={() =>
-              void runStep("eos-wages", async () => {
-                const res = await fetch("/api/admin/apply-wages", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(seasonBody()),
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error ?? "Failed");
-                return formatApplyWagesResponseMessage(data);
-              })
-            }
-          >
-            {pending === "eos-wages" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
-            Run: pay wages (50%)
-          </button>
-        </li>
-
-        <li className={stepBox}>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[0.65rem] font-bold uppercase tracking-wider text-zinc-500">Step 5</p>
               <p className="font-semibold text-zinc-900">Promotion &amp; relegation</p>
               <p className="mt-1 text-sm text-zinc-600">
                 Applies division moves from completed league tables. Defaults match a typical close-out: skip duplicate
@@ -387,6 +349,50 @@ export function EndOfSeasonChecklistSection() {
           </button>
         </li>
       </ol>
+
+      <div className="mt-6 rounded-xl border border-dashed border-emerald-300/70 bg-emerald-50/40 p-4">
+        <p className="text-[0.65rem] font-bold uppercase tracking-wider text-emerald-900/80">Beginning of season</p>
+        <p className="mt-1 text-xs text-zinc-600">
+          Same button as always — shown here if you run wages once the new season label is active.
+        </p>
+        <div className={`${stepBox} mt-3 bg-white`}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-semibold text-zinc-900">Pay season wages (50% squad MV)</p>
+              <p className="mt-1 text-sm text-zinc-600">Charges each club based on current squad market values.</p>
+            </div>
+            <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-zinc-500">
+              <input
+                type="checkbox"
+                checked={doneWages}
+                onChange={(e) => setDoneWages(e.target.checked)}
+                className="rounded border-zinc-300"
+              />
+              Done
+            </label>
+          </div>
+          <button
+            type="button"
+            disabled={pending !== null}
+            className={`${btn} mt-3`}
+            onClick={() =>
+              void runStep("eos-wages", async () => {
+                const res = await fetch("/api/admin/apply-wages", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(seasonBody()),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error ?? "Failed");
+                return formatApplyWagesResponseMessage(data);
+              })
+            }
+          >
+            {pending === "eos-wages" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
+            Run: pay wages (50%)
+          </button>
+        </div>
+      </div>
 
       {message && (
         <p className="mt-4 whitespace-pre-wrap rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800">

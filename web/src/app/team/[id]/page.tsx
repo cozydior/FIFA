@@ -500,6 +500,34 @@ export default async function TeamPage({
   const annualContracts = squadAnnualWageBill(totalSquadValue);
   const canCoverWageBill = balance >= annualContracts;
 
+  const { data: allTeamRows } = await supabase.from("teams").select("id, league_id, country");
+  const { data: allPlayerRows } = await supabase.from("players").select("team_id, market_value");
+  const squadMvByTeam = new Map<string, number>();
+  for (const t of allTeamRows ?? []) squadMvByTeam.set(t.id, 0);
+  for (const p of allPlayerRows ?? []) {
+    const tid = p.team_id as string | null;
+    if (!tid || !squadMvByTeam.has(tid)) continue;
+    squadMvByTeam.set(tid, (squadMvByTeam.get(tid) ?? 0) + Number(p.market_value ?? 0));
+  }
+  const mySquadMv = squadMvByTeam.get(id) ?? totalSquadValue;
+  function squadRankAmong(teamIds: string[]): number | null {
+    const ids = [...new Set(teamIds)].filter((tid) => squadMvByTeam.has(tid));
+    if (ids.length === 0) return null;
+    const strictlyGreater = ids.filter((tid) => (squadMvByTeam.get(tid) ?? 0) > mySquadMv).length;
+    return strictlyGreater + 1;
+  }
+  const leaguePeerIds =
+    team.league_id ?
+      (allTeamRows ?? []).filter((t) => t.league_id === team.league_id).map((t) => t.id)
+    : [];
+  const countryPeerIds = (allTeamRows ?? [])
+    .filter((t) => t.country === team.country)
+    .map((t) => t.id);
+  const globalPeerIds = (allTeamRows ?? []).map((t) => t.id);
+  const squadRankLeague = team.league_id ? squadRankAmong(leaguePeerIds) : null;
+  const squadRankCountry = squadRankAmong(countryPeerIds);
+  const squadRankGlobal = squadRankAmong(globalPeerIds);
+
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f1f5f9_0%,#f8fafc_12rem,#f1f5f9_100%)]">
       <div className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
@@ -575,13 +603,7 @@ export default async function TeamPage({
 
         <section className="mt-8">
         <div className="mb-6 grid gap-3 sm:grid-cols-2">
-          <div
-            className={`rounded-2xl border px-5 py-4 shadow-sm ${
-              canCoverWageBill
-                ? "border-emerald-200/90 bg-gradient-to-br from-emerald-50/90 via-white to-white ring-1 ring-emerald-100/70"
-                : "border-red-200/90 bg-gradient-to-br from-red-50/90 via-white to-white ring-1 ring-red-100/70"
-            }`}
-          >
+          <div className="rounded-2xl border border-slate-200/90 bg-white px-5 py-4 shadow-sm">
             <div className="grid grid-cols-2 gap-4 divide-x divide-slate-200/80">
               <div className="min-w-0 pr-2">
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
@@ -590,15 +612,41 @@ export default async function TeamPage({
                 <p className="mt-1 text-xl font-black text-slate-900">
                   {formatMoneyPounds(totalSquadValue)}
                 </p>
+                <ul className="mt-2 space-y-0.5 font-mono text-[0.65rem] font-semibold tabular-nums text-slate-500">
+                  {squadRankLeague != null ?
+                    <li>
+                      <span className="text-slate-400">League</span>{" "}
+                      <span className="text-slate-700">#{squadRankLeague}</span>
+                    </li>
+                  : null}
+                  {squadRankCountry != null ?
+                    <li>
+                      <span className="text-slate-400">Country</span>{" "}
+                      <span className="text-slate-700">#{squadRankCountry}</span>
+                    </li>
+                  : null}
+                  {squadRankGlobal != null ?
+                    <li>
+                      <span className="text-slate-400">Global</span>{" "}
+                      <span className="text-slate-700">#{squadRankGlobal}</span>
+                    </li>
+                  : null}
+                </ul>
               </div>
-              <div className="min-w-0 pl-2">
+              <div
+                className={`min-w-0 rounded-r-lg pl-2 ${
+                  canCoverWageBill
+                    ? "border border-emerald-200/90 bg-gradient-to-br from-emerald-50/90 to-white ring-1 ring-emerald-100/70"
+                    : "border border-red-200/90 bg-gradient-to-br from-red-50/90 to-white ring-1 ring-red-100/70"
+                }`}
+              >
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
                   Contracts
                 </p>
                 <p className="mt-1 text-xl font-black text-slate-900">
                   {formatMoneyPounds(annualContracts)}
                 </p>
-                <p className="mt-1 text-[0.65rem] leading-snug text-slate-500">
+                <p className="mt-1 text-[0.65rem] leading-snug text-slate-600">
                   Annual wage bill (50% of squad MV). {canCoverWageBill ? "Balance covers it." : "Balance below this bill."}
                 </p>
               </div>

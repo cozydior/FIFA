@@ -416,7 +416,7 @@ export default async function CountryPage({
               <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
                 {poolValueRank ?
                   <span className="shrink-0 font-mono text-[0.7rem] font-bold tabular-nums text-slate-500">
-                    #{poolValueRank.rank}/{poolValueRank.total}
+                    #{poolValueRank.rank}
                   </span>
                 : null}
                 <span className="font-mono text-sm font-bold text-slate-900">
@@ -432,7 +432,7 @@ export default async function CountryPage({
                 <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
                   {callupValueRank ?
                     <span className="shrink-0 font-mono text-[0.7rem] font-bold tabular-nums text-emerald-800/80">
-                      #{callupValueRank.rank}/{callupValueRank.total}
+                      #{callupValueRank.rank}
                     </span>
                   : null}
                   <span className="font-mono text-sm font-bold text-slate-900">

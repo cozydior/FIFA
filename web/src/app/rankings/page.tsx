@@ -11,9 +11,17 @@ import {
 } from "@/lib/rankingsData";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { fotMobBadgeClass, marketTrendLabel } from "@/lib/fotMobBadge";
+import { budgetVsSquadBubbleClass } from "@/lib/budgetVsSquadTone";
+import { LeagueDivisionChip } from "@/lib/divisionChip";
+import { squadAnnualWageBill } from "@/lib/economy";
 import { formatMoneyPounds } from "@/lib/formatMoney";
+import { fetchTeamRankingsBySquadValue } from "@/lib/teamRankingsData";
 
 export const revalidate = 60;
+
+function parseTab(v: string | undefined): "players" | "teams" {
+  return v === "teams" ? "teams" : "players";
+}
 
 function parseRole(v: string | undefined): RankingsRoleFilter {
   if (v === "ST" || v === "GK" || v === "all") return v;
@@ -72,6 +80,7 @@ export default async function RankingsPage({
   const leagueId =
     typeof sp.league === "string" && sp.league.trim() ? sp.league.trim() : "";
   const freeAgentsOnly = sp.free === "1";
+  const tab = parseTab(typeof sp.tab === "string" ? sp.tab : undefined);
 
   const supabase = getSupabaseAdmin();
   const [{ data: seasons }, { data: leagues }, { data: countries }] = await Promise.all([
@@ -82,9 +91,10 @@ export default async function RankingsPage({
 
   const seasonLabel = season ?? "";
   let rows: Awaited<ReturnType<typeof fetchRankingsRows>> = [];
+  let teamRows: Awaited<ReturnType<typeof fetchTeamRankingsBySquadValue>> = [];
   let loadError: string | null = null;
   try {
-    if (seasonLabel) {
+    if (seasonLabel && tab === "players") {
       rows = await fetchRankingsRows({
         seasonLabel,
         roleFilter: role,
@@ -95,8 +105,28 @@ export default async function RankingsPage({
         sortKey: sort,
       });
     }
+    if (tab === "teams") {
+      teamRows = await fetchTeamRankingsBySquadValue(supabase);
+    }
   } catch (e) {
     loadError = e instanceof Error ? e.message : "Failed to load rankings";
+  }
+
+  function rankingsHref(next: { tab?: "players" | "teams" }): string {
+    const p = new URLSearchParams();
+    if (seasonLabel) p.set("season", seasonLabel);
+    if (next.tab === "teams") {
+      p.set("tab", "teams");
+    } else {
+      p.set("role", role);
+      p.set("scope", scope);
+      p.set("sort", sort);
+      if (country) p.set("country", country);
+      if (leagueId) p.set("league", leagueId);
+      if (freeAgentsOnly) p.set("free", "1");
+    }
+    const q = p.toString();
+    return q ? `/rankings?${q}` : "/rankings";
   }
 
   const scopeNote =
@@ -106,14 +136,14 @@ export default async function RankingsPage({
 
   const statHead =
     role === "GK" ?
-      scope === "career" ? "Saves (career, incl. intl)"
+      scope === "career" ? "Saves"
       : scope === "season" ? "Saves (season)"
       : "Saves"
     : role === "ST" ?
-      scope === "career" ? "Goals (career, incl. intl)"
+      scope === "career" ? "Goals"
       : scope === "season" ? "Goals (season)"
       : "Goals"
-    : scope === "career" ? "Goals / saves (career, incl. intl)"
+    : scope === "career" ? "Goals / saves"
     : scope === "season" ? "Goals / saves (season)"
     : "Goals / saves";
 
@@ -163,10 +193,35 @@ export default async function RankingsPage({
         </div>
       </header>
 
+      <nav className="mb-6 flex flex-wrap gap-2">
+        <Link
+          href={rankingsHref({ tab: "players" })}
+          className={
+            tab === "players" ?
+              "rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white shadow-sm"
+            : "rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-emerald-400"
+          }
+        >
+          Players
+        </Link>
+        <Link
+          href={rankingsHref({ tab: "teams" })}
+          className={
+            tab === "teams" ?
+              "rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white shadow-sm"
+            : "rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-emerald-400"
+          }
+        >
+          Teams
+        </Link>
+      </nav>
+
+      {tab === "players" ?
       <form
         method="get"
         className="mb-6 flex flex-col gap-3 rounded-2xl border border-slate-300/90 bg-white p-4 shadow-sm"
       >
+        <input type="hidden" name="tab" value="players" />
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-xs font-bold uppercase text-slate-500">
             Season (for season stats & filters)
@@ -280,6 +335,7 @@ export default async function RankingsPage({
           <p className="text-xs text-amber-800">{scopeNote}</p>
         )}
       </form>
+      : null}
 
       {loadError && (
         <div className="mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
@@ -287,13 +343,86 @@ export default async function RankingsPage({
         </div>
       )}
 
-      {!seasonLabel && (
+      {!seasonLabel && tab === "players" && (
         <p className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-8 text-center text-sm text-slate-600">
           Pick a season to load rankings.
         </p>
       )}
 
-      {seasonLabel && !loadError && (
+      {tab === "teams" && !loadError && (
+        <div className="overflow-x-auto rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/40 shadow-md ring-1 ring-slate-200/50">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-100/90 text-left text-xs uppercase tracking-wide text-slate-600">
+                <th className="px-3 py-3 pl-4">#</th>
+                <th className="px-3 py-3">Team</th>
+                <th className="px-3 py-3 text-right">Squad MV</th>
+                <th className="px-3 py-3 text-right" title="Annual wage bill (50% of squad MV)">
+                  Contracts
+                </th>
+                <th className="px-3 py-3 pr-4 text-right">Budget</th>
+              </tr>
+            </thead>
+            <tbody>
+              {teamRows.map((t, i) => (
+                <tr key={t.id} className="border-t border-slate-100/90 transition-colors hover:bg-emerald-50/40">
+                  <td className="px-3 py-2.5 pl-4 font-mono text-sm text-slate-500">{i + 1}</td>
+                  <td className="px-3 py-2.5">
+                    <div className="flex min-w-0 flex-col gap-1">
+                      <Link
+                        href={`/team/${t.id}`}
+                        className="inline-flex min-w-0 items-center gap-2 font-semibold text-slate-900 hover:text-emerald-800 hover:underline"
+                      >
+                        {t.logo_url ?
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={t.logo_url}
+                            alt=""
+                            className="h-9 w-9 shrink-0 rounded-lg border border-slate-200/80 bg-white object-contain p-0.5 shadow-sm"
+                          />
+                        : null}
+                        <span className="truncate">{t.name}</span>
+                      </Link>
+                      {t.league_name ?
+                        <span className="flex flex-wrap items-center gap-1.5 pl-[2.75rem] text-xs text-slate-500">
+                          {t.league_logo_url ?
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={t.league_logo_url}
+                              alt=""
+                              className="h-6 w-6 shrink-0 rounded-md border border-slate-200/80 bg-white object-contain p-0.5 shadow-sm"
+                            />
+                          : null}
+                          <span className="min-w-0 truncate">{t.league_name}</span>
+                          {t.league_country ?
+                            <span className="shrink-0 text-slate-400">· {t.league_country}</span>
+                          : null}
+                          <LeagueDivisionChip division={t.league_division} />
+                        </span>
+                      : null}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-mono font-semibold text-slate-900">
+                    {formatMoneyPounds(t.squad_market_value)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-mono text-sm font-semibold text-slate-800">
+                    {formatMoneyPounds(squadAnnualWageBill(t.squad_market_value))}
+                  </td>
+                  <td className="px-3 py-2.5 pr-4 text-right">
+                    <span
+                      className={`font-mono font-semibold tabular-nums text-slate-900 ${budgetVsSquadBubbleClass(t.current_balance, t.squad_market_value)}`}
+                    >
+                      {formatMoneyPounds(t.current_balance)}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {seasonLabel && !loadError && tab === "players" && (
         <div className="overflow-x-auto rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50/40 shadow-md ring-1 ring-slate-200/50">
           <table className="w-full text-sm">
             <thead>
@@ -354,7 +483,29 @@ export default async function RankingsPage({
                     </div>
                   </td>
                   <td className="px-3 py-2.5 text-slate-700">
-                    {r.team_name ?
+                    {r.team_name && r.team_id ?
+                      <Link
+                        href={`/team/${r.team_id}`}
+                        className="inline-flex min-w-0 items-center gap-2 rounded-lg py-0.5 hover:bg-slate-100/80"
+                      >
+                        {r.team_logo_url ?
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={r.team_logo_url}
+                            alt=""
+                            className="h-8 w-8 shrink-0 rounded-lg border border-slate-200/80 bg-white object-contain p-0.5 shadow-sm"
+                          />
+                        : null}
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold text-slate-900 underline-offset-2 hover:text-emerald-800 hover:underline">
+                            {r.team_name}
+                          </span>
+                          {r.league_name && (
+                            <span className="block truncate text-xs text-slate-500">{r.league_name}</span>
+                          )}
+                        </span>
+                      </Link>
+                    : r.team_name ?
                       <span className="inline-flex min-w-0 items-center gap-2">
                         {r.team_logo_url ?
                           // eslint-disable-next-line @next/next/no-img-element

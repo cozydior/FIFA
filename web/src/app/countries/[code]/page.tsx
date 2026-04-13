@@ -7,7 +7,6 @@ import { PlayerAvatar } from "@/components/PlayerAvatar";
 import {
   Check,
   ChevronDown,
-  History,
   Minus,
   TrendingUp,
   Trophy,
@@ -26,6 +25,7 @@ import {
 } from "@/lib/trophyCabinet";
 import { TrophyTitleStars } from "@/components/TrophyTitleStars";
 import { HonourCabinetChips } from "@/components/HonourCabinetCompact";
+import { NationalTournamentHistoryPager } from "@/components/NationalTournamentHistoryPager";
 import { sortCabinetGroups } from "@/lib/honourDisplayOrder";
 
 /** Always resolve national team from DB on each request (avoids stale cached pages showing no NT). */
@@ -34,6 +34,59 @@ export const dynamic = "force-dynamic";
 const CALLOUP_ORDER = ["ST1", "ST2", "GK1"] as const;
 
 const MAX_INTL_SIM_ROWS = 100;
+
+type EligiblePoolPlayer = {
+  id: string;
+  name: string;
+  role: string;
+  profile_pic_url: string | null;
+  market_value?: number | null;
+  team_id?: string | null;
+  teams?: { id: string; name: string; logo_url: string | null } | { id: string; name: string; logo_url: string | null }[] | null;
+};
+
+function EligiblePlayerRow({ pl }: { pl: EligiblePoolPlayer }) {
+  const club = Array.isArray(pl.teams) ? pl.teams[0] : pl.teams;
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+      <Link
+        href={`/player/${pl.id}`}
+        className="flex min-w-0 flex-1 items-center gap-2 font-semibold text-slate-900 hover:text-emerald-800 hover:underline"
+      >
+        <PlayerAvatar name={pl.name} profilePicUrl={pl.profile_pic_url} />
+        <span className="truncate">{pl.name}</span>
+      </Link>
+      <span className="shrink-0 text-xs text-slate-500">{pl.role}</span>
+      <div className="flex w-full basis-full items-center justify-end gap-3 text-xs sm:w-auto sm:basis-auto">
+        {club ?
+          <Link
+            href={`/team/${club.id}`}
+            className="inline-flex items-center gap-1.5 font-medium text-slate-700 hover:text-emerald-800 hover:underline"
+          >
+            {club.logo_url ?
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={club.logo_url} alt="" className="h-5 w-5 rounded object-contain" />
+            : null}
+            {club.name}
+          </Link>
+        : <span className="text-slate-400">No club</span>}
+        <span className="font-mono text-slate-500">
+          {formatMoneyPounds(Number(pl.market_value ?? 0))}
+        </span>
+      </div>
+    </li>
+  );
+}
+
+function EligibleRoleDivider({ label }: { label: string }) {
+  return (
+    <li className="list-none border-y border-slate-200/90 bg-gradient-to-r from-slate-50 to-slate-100/80 px-4 py-2.5">
+      <span className="block text-center text-[0.65rem] font-bold uppercase tracking-[0.2em] text-slate-400">
+        {label}
+      </span>
+    </li>
+  );
+}
 
 function intlStageDetail(stage: string, groupName: string | null, week: number): string {
   const bits: string[] = [];
@@ -159,6 +212,17 @@ export default async function CountryPage({
       Number(pb.market_value ?? 0) - Number(pa.market_value ?? 0);
     if (mv !== 0) return mv;
     return String(pa.name ?? "").localeCompare(String(pb.name ?? ""));
+  });
+
+  const eligibleStrikers = sortedAvailablePool.filter(
+    (p) => (p as { role?: string }).role === "ST",
+  );
+  const eligibleGks = sortedAvailablePool.filter(
+    (p) => (p as { role?: string }).role === "GK",
+  );
+  const eligibleOther = sortedAvailablePool.filter((p) => {
+    const r = (p as { role?: string }).role ?? "";
+    return r !== "ST" && r !== "GK";
   });
 
   const tournamentHistory = nt ? await fetchNationalTournamentHistory(supabase, nt.id) : [];
@@ -311,14 +375,16 @@ export default async function CountryPage({
     return s + Number(pl?.market_value ?? 0);
   }, 0);
 
-  /** Rank among all national teams (same count for pool MV and call-up MV). */
-  let poolValueRank: { rank: number; total: number } | null = null;
-  let callupValueRank: { rank: number; total: number } | null = null;
+  /** Confederation (e.g. UEFA / FIFA) + global ranks for pool MV and call-up MV. */
+  let poolRankConf: number | null = null;
+  let poolRankGlobal: number | null = null;
+  let callupRankConf: number | null = null;
+  let callupRankGlobal: number | null = null;
 
   if (season.trim() && nt) {
     const { data: ntAll } = await supabase
       .from("national_teams")
-      .select("id, countries(name)")
+      .select("id, confederation, countries(name)")
       .order("name");
     const rows = ntAll ?? [];
     const countryNames = [
@@ -333,6 +399,15 @@ export default async function CountryPage({
       ),
     ];
     const ntIds = rows.map((r) => r.id as string);
+    const confByNtId = new Map(rows.map((r) => [r.id as string, String(r.confederation ?? "").trim()]));
+    const confByCountryName = new Map<string, string>();
+    for (const r of rows) {
+      const c = r.countries as { name?: string } | { name?: string }[] | null | undefined;
+      const one = Array.isArray(c) ? c[0] : c;
+      const nm = typeof one?.name === "string" ? one.name : null;
+      if (nm) confByCountryName.set(nm, String(r.confederation ?? "").trim());
+    }
+    const myConf = String(nt.confederation ?? "").trim();
 
     if (countryNames.length > 0) {
       const { data: poolPlayers } = await supabase
@@ -346,12 +421,20 @@ export default async function CountryPage({
         if (!poolByName.has(nat)) continue;
         poolByName.set(nat, (poolByName.get(nat) ?? 0) + Number(p.market_value ?? 0));
       }
-      const poolValues = countryNames.map((n) => poolByName.get(n) ?? 0);
-      const strictlyGreaterPool = poolValues.filter((v) => v > totalPoolValue).length;
-      poolValueRank = {
-        rank: strictlyGreaterPool + 1,
-        total: countryNames.length,
-      };
+      const poolPeerNames =
+        myConf ?
+          countryNames.filter((n) => confByCountryName.get(n) === myConf)
+        : [];
+      if (myConf && poolPeerNames.length > 0) {
+        const strictlyGreaterConf = poolPeerNames.filter(
+          (n) => (poolByName.get(n) ?? 0) > totalPoolValue,
+        ).length;
+        poolRankConf = strictlyGreaterConf + 1;
+      }
+      const strictlyGreaterGlobal = countryNames.filter(
+        (n) => (poolByName.get(n) ?? 0) > totalPoolValue,
+      ).length;
+      poolRankGlobal = strictlyGreaterGlobal + 1;
     }
 
     if (ntIds.length > 0) {
@@ -367,12 +450,18 @@ export default async function CountryPage({
         const pl = row.players as { market_value?: unknown } | null;
         callupMvByNt.set(tid, (callupMvByNt.get(tid) ?? 0) + Number(pl?.market_value ?? 0));
       }
-      const callupValues = ntIds.map((id) => callupMvByNt.get(id) ?? 0);
-      const strictlyGreaterCu = callupValues.filter((v) => v > calledUpValue).length;
-      callupValueRank = {
-        rank: strictlyGreaterCu + 1,
-        total: ntIds.length,
-      };
+      const confPeerNtIds =
+        myConf ? ntIds.filter((tid) => confByNtId.get(tid) === myConf) : [];
+      if (myConf && confPeerNtIds.length > 0) {
+        const strictlyGreaterConfCu = confPeerNtIds.filter(
+          (tid) => (callupMvByNt.get(tid) ?? 0) > calledUpValue,
+        ).length;
+        callupRankConf = strictlyGreaterConfCu + 1;
+      }
+      const strictlyGreaterCu = ntIds.filter(
+        (tid) => (callupMvByNt.get(tid) ?? 0) > calledUpValue,
+      ).length;
+      callupRankGlobal = strictlyGreaterCu + 1;
     }
   }
 
@@ -384,209 +473,202 @@ export default async function CountryPage({
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f1f5f9_0%,#f8fafc_12rem,#f1f5f9_100%)]">
       <div className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-        <header className="mb-8 overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-6 shadow-[0_1px_3px_rgba(15,23,42,0.06)] sm:p-8">
-          <p className="text-[0.65rem] font-bold uppercase tracking-[0.2em] text-emerald-700/90">
-            National team
-          </p>
-          <h1 className="mt-1 flex flex-wrap items-center gap-x-2 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
-            <span className="mr-1">{displayFlag}</span>
-            <span>{country.name}</span>
-            <TrophyTitleStars count={worldCupStars} label="FIFA World Cup titles" />
-          </h1>
-          {nt && (
-            <p className="mt-2 text-sm font-medium text-slate-600">
-              <span className="font-semibold text-slate-800">{nt.name}</span>
-              {" · "}
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                {nt.confederation}
-              </span>
-            </p>
-          )}
-          {!nt && (
-            <p className="mt-2 text-sm text-amber-800">
-              No national team is linked to this country in <strong>this database</strong> yet — run{" "}
-              <strong>Seed national teams</strong> in Admin (or sync data with your deployed environment).
-            </p>
-          )}
-          <div className="mt-3 flex flex-wrap gap-3">
-            <div className="rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-2">
-              <p className="text-[0.65rem] font-bold uppercase tracking-wider text-slate-500">
-                All nationals MV
-              </p>
-              <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
-                {poolValueRank ?
-                  <span className="shrink-0 font-mono text-[0.7rem] font-bold tabular-nums text-slate-500">
-                    #{poolValueRank.rank}
-                  </span>
-                : null}
-                <span className="font-mono text-sm font-bold text-slate-900">
-                  {formatMoneyPounds(totalPoolValue)}
-                </span>
-              </p>
+        <header className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.06)]">
+          <div className="flex flex-col gap-6 p-5 sm:flex-row sm:items-center sm:gap-8 sm:p-8">
+            <div className="mx-auto flex h-28 w-28 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-white text-5xl leading-none shadow-md ring-1 ring-slate-200/60 sm:mx-0 sm:h-32 sm:w-32 sm:text-6xl">
+              {displayFlag ?
+                <span aria-hidden>{displayFlag}</span>
+              : <span className="text-3xl font-black text-slate-600">{country.name.slice(0, 1)}</span>}
             </div>
-            {callupsList.length > 0 && (
-              <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/60 px-3 py-2">
-                <p className="text-[0.65rem] font-bold uppercase tracking-wider text-emerald-700">
-                  Called-up squad MV
-                </p>
-                <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
-                  {callupValueRank ?
-                    <span className="shrink-0 font-mono text-[0.7rem] font-bold tabular-nums text-emerald-800/80">
-                      #{callupValueRank.rank}
-                    </span>
-                  : null}
-                  <span className="font-mono text-sm font-bold text-slate-900">
-                    {formatMoneyPounds(calledUpValue)}
+            <div className="min-w-0 flex-1 text-center sm:text-left">
+              <p className="text-[0.65rem] font-bold uppercase tracking-[0.2em] text-emerald-700/90">
+                National team
+              </p>
+              <h1 className="mt-1 flex flex-wrap items-center justify-center gap-x-2 text-3xl font-extrabold tracking-tight text-slate-900 sm:justify-start sm:text-4xl">
+                <span>{country.name}</span>
+                <TrophyTitleStars count={worldCupStars} label="FIFA World Cup titles" />
+              </h1>
+              {nt && (
+                <p className="mt-2 text-sm font-medium text-slate-600">
+                  <span className="font-semibold text-slate-800">{nt.name}</span>
+                  {" · "}
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    {nt.confederation}
                   </span>
                 </p>
-              </div>
-            )}
+              )}
+              {!nt && (
+                <p className="mt-2 text-sm text-amber-800">
+                  No national team is linked to this country in <strong>this database</strong> yet — run{" "}
+                  <strong>Seed national teams</strong> in Admin (or sync data with your deployed environment).
+                </p>
+              )}
+              {nt && season.trim() ?
+                <p className="mt-4 inline-flex rounded-2xl bg-emerald-50 px-4 py-2 font-mono text-sm font-bold text-emerald-950 ring-1 ring-emerald-200/80">
+                  {/^season\s+/i.test(season.trim()) ? season.trim() : `Season ${season.trim()}`}
+                </p>
+              : null}
+            </div>
           </div>
         </header>
 
         {nt && (
-          <div className="mb-8 grid items-start gap-6 xl:grid-cols-2">
-            <section className="rounded-2xl border border-slate-200/90 bg-white px-4 py-2.5 shadow-sm">
-              <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-600">
-                <TrendingUp className="h-4 w-4 shrink-0 text-emerald-600" />
-                Current form (last 5 international)
-              </p>
-              <div className="mt-1.5 flex flex-wrap items-center gap-3">
-                {intlFormLast.length > 0 ?
-                  intlFormLast.map((f) => {
-                    const letter = intlFormResult(
-                      nt.id,
-                      f.home_national_team_id,
-                      f.away_national_team_id,
-                      f.home_score,
-                      f.away_score,
-                    );
-                    const ring =
-                      letter === "W" ? "border-emerald-600 bg-emerald-500 text-white"
-                      : letter === "L" ? "border-red-600 bg-red-500 text-white"
-                      : "border-slate-400 bg-slate-400 text-white";
-                    const oppId =
-                      f.home_national_team_id === nt.id ?
-                        f.away_national_team_id
-                      : f.home_national_team_id;
-                    const opp = intlFormOpp.get(oppId);
-                    return (
-                      <span
-                        key={f.id}
-                        className="inline-flex items-center"
-                        title={
-                          opp ?
-                            `${letter === "W" ? "Win" : letter === "L" ? "Loss" : "Draw"} vs ${opp.name}`
-                          : undefined
-                        }
-                      >
-                        <span
-                          className={`inline-flex h-8 w-8 items-center justify-center rounded-full border-2 shadow-sm ${ring}`}
-                        >
-                          {letter === "W" ?
-                            <Check className="h-4 w-4" strokeWidth={3} />
-                          : letter === "L" ?
-                            <X className="h-4 w-4" strokeWidth={3} />
-                          : <Minus className="h-4 w-4" strokeWidth={3} />}
-                        </span>
-                      </span>
-                    );
-                  })
-                : <span className="text-sm text-slate-500">—</span>}
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
-              <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-600">
-                <History className="h-4 w-4 shrink-0 text-emerald-600" />
-                Tournament history
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                Finishes from international tournaments in the sim (fixtures &amp; group tables).
-              </p>
-              {tournamentHistory.length === 0 ?
-                <p className="mt-4 text-sm text-slate-500">
-                  No tournament history yet — play or simulate international competitions to populate
-                  this.
-                </p>
-              : <ul className="mt-4 space-y-3">
-                  {tournamentHistory.map((row) => {
-                    const badge =
-                      row.kind === "champion" ? "bg-amber-400 text-amber-950 ring-amber-300/80"
-                      : row.kind === "runner_up" ? "bg-slate-200 text-slate-900 ring-slate-300/80"
-                      : row.kind === "semis" || row.kind === "final_pending" ?
-                        "bg-violet-200 text-violet-950 ring-violet-300/70"
-                      : row.kind === "qualified" ? "bg-emerald-200 text-emerald-950 ring-emerald-300/70"
-                      : row.kind === "group_out" ? "bg-rose-100 text-rose-900 ring-rose-200/80"
-                      : row.kind === "group_live" ? "bg-sky-100 text-sky-900 ring-sky-200/80"
-                      : "bg-slate-100 text-slate-700 ring-slate-200/80";
-                    return (
-                      <li
-                        key={`${row.seasonLabel}-${row.slug}`}
-                        className="rounded-xl border border-slate-200/90 bg-slate-50/80 p-4 shadow-sm"
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="font-mono text-[0.65rem] font-bold uppercase tracking-wide text-slate-500">
-                              {row.seasonLabel}
-                            </p>
-                            <p className="mt-0.5 font-semibold text-slate-900">{row.competitionName}</p>
-                          </div>
-                          <span
-                            className={`inline-flex shrink-0 rounded-full px-2.5 py-1 text-[0.7rem] font-black uppercase tracking-wide ring-1 ${badge}`}
-                          >
-                            {row.finish}
-                          </span>
-                        </div>
-                        {row.detail ?
-                          <p className="mt-2 text-xs leading-relaxed text-slate-600">{row.detail}</p>
+          <>
+            <div className="mb-6 mt-8 grid gap-3 xl:grid-cols-2 xl:items-stretch">
+              <div className="rounded-2xl border border-slate-200/90 bg-white px-5 py-4 shadow-sm xl:col-start-1 xl:row-start-1">
+                {callupsList.length > 0 ?
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-0 sm:divide-x sm:divide-slate-200">
+                    <div className="min-w-0 sm:pr-4">
+                      <p className="text-xs font-bold uppercase tracking-wider text-slate-500">All nationals MV</p>
+                      <p className="mt-1 text-xl font-black text-slate-900">{formatMoneyPounds(totalPoolValue)}</p>
+                      {(poolRankConf != null || poolRankGlobal != null) && (
+                        <ul className="mt-2 space-y-0.5 font-mono text-[0.65rem] font-semibold tabular-nums text-slate-500">
+                          {poolRankConf != null ?
+                            <li>
+                              <span className="text-slate-400">{nt.confederation}</span>{" "}
+                              <span className="text-slate-700">#{poolRankConf}</span>
+                            </li>
+                          : null}
+                          {poolRankGlobal != null ?
+                            <li>
+                              <span className="text-slate-400">Global</span>{" "}
+                              <span className="text-slate-700">#{poolRankGlobal}</span>
+                            </li>
+                          : null}
+                        </ul>
+                      )}
+                    </div>
+                    <div className="min-w-0 border-t border-slate-200 pt-4 sm:border-t-0 sm:pt-0 sm:pl-4">
+                      <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Called-up squad MV</p>
+                      <p className="mt-1 text-xl font-black text-slate-900">{formatMoneyPounds(calledUpValue)}</p>
+                      {(callupRankConf != null || callupRankGlobal != null) && (
+                        <ul className="mt-2 space-y-0.5 font-mono text-[0.65rem] font-semibold tabular-nums text-slate-500">
+                          {callupRankConf != null ?
+                            <li>
+                              <span className="text-slate-400">{nt.confederation}</span>{" "}
+                              <span className="text-slate-700">#{callupRankConf}</span>
+                            </li>
+                          : null}
+                          {callupRankGlobal != null ?
+                            <li>
+                              <span className="text-slate-400">Global</span>{" "}
+                              <span className="text-slate-700">#{callupRankGlobal}</span>
+                            </li>
+                          : null}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                : (
+                  <>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-500">All nationals MV</p>
+                    <p className="mt-1 text-xl font-black text-slate-900">{formatMoneyPounds(totalPoolValue)}</p>
+                    {(poolRankConf != null || poolRankGlobal != null) && (
+                      <ul className="mt-2 space-y-0.5 font-mono text-[0.65rem] font-semibold tabular-nums text-slate-500">
+                        {poolRankConf != null ?
+                          <li>
+                            <span className="text-slate-400">{nt.confederation}</span>{" "}
+                            <span className="text-slate-700">#{poolRankConf}</span>
+                          </li>
                         : null}
-                        <Link
-                          href={`/competitions/international/${row.slug}?season=${encodeURIComponent(row.seasonLabel)}`}
-                          className="mt-3 inline-block text-xs font-bold text-emerald-800 hover:underline"
-                        >
-                          Open tournament →
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              }
-            </section>
-          </div>
-        )}
-
-        {nt && (
-          <section className="mb-8 rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
-            <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-slate-500">
-              <Trophy className="h-4 w-4 text-amber-500" />
-              International honours
-            </h2>
-            {ntCabinet.length === 0 ?
-              <p className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-500">
-                No silverware on file yet — use Admin to record honours.
-              </p>
-            : <div className="mt-4">
-                <HonourCabinetChips groups={ntCabinet} defMap={defMap} />
+                        {poolRankGlobal != null ?
+                          <li>
+                            <span className="text-slate-400">Global</span>{" "}
+                            <span className="text-slate-700">#{poolRankGlobal}</span>
+                          </li>
+                        : null}
+                      </ul>
+                    )}
+                  </>
+                )}
               </div>
-            }
-          </section>
+
+              <section className="rounded-2xl border border-slate-200/90 bg-white px-3 py-2 shadow-sm xl:col-start-1 xl:row-start-2">
+                <p className="flex items-center gap-1.5 text-[0.65rem] font-bold uppercase tracking-wider text-slate-600">
+                  <TrendingUp className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                  Current form (last 5 international)
+                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-1">
+                  {intlFormLast.length > 0 ?
+                    intlFormLast.map((f) => {
+                      const letter = intlFormResult(
+                        nt.id,
+                        f.home_national_team_id,
+                        f.away_national_team_id,
+                        f.home_score,
+                        f.away_score,
+                      );
+                      const ring =
+                        letter === "W" ? "border-emerald-600 bg-emerald-500 text-white"
+                        : letter === "L" ? "border-red-600 bg-red-500 text-white"
+                        : "border-slate-400 bg-slate-400 text-white";
+                      const oppId =
+                        f.home_national_team_id === nt.id ?
+                          f.away_national_team_id
+                        : f.home_national_team_id;
+                      const opp = intlFormOpp.get(oppId);
+                      return (
+                        <span
+                          key={f.id}
+                          className="inline-flex items-center"
+                          title={
+                            opp ?
+                              `${letter === "W" ? "Win" : letter === "L" ? "Loss" : "Draw"} vs ${opp.name}`
+                            : undefined
+                          }
+                        >
+                          <span
+                            className={`inline-flex h-7 w-7 items-center justify-center rounded-full border-2 shadow-sm ${ring}`}
+                          >
+                            {letter === "W" ?
+                              <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                            : letter === "L" ?
+                              <X className="h-3.5 w-3.5" strokeWidth={3} />
+                            : <Minus className="h-3.5 w-3.5" strokeWidth={3} />}
+                          </span>
+                        </span>
+                      );
+                    })
+                  : <span className="text-sm text-slate-500">—</span>}
+                </div>
+              </section>
+
+              <div className="flex min-h-0 flex-col xl:col-start-2 xl:row-span-2 xl:row-start-1">
+                <NationalTournamentHistoryPager
+                  rows={tournamentHistory}
+                  emptyMessage="No tournament history yet — play or simulate international competitions to populate this."
+                />
+              </div>
+            </div>
+
+            <section className="mb-8">
+              <h2 className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-500">
+                <Trophy className="h-4 w-4 text-amber-500" />
+                International honours
+              </h2>
+              {ntCabinet.length === 0 ?
+                <p className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-500">
+                  No silverware on file yet — use Admin to record honours.
+                </p>
+              : <HonourCabinetChips groups={ntCabinet} defMap={defMap} />}
+            </section>
+          </>
         )}
 
         {nt && (
-          <section className="mb-8 rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-bold uppercase tracking-widest text-slate-500">
+          <section className="mb-8">
+            <h2 className="mb-1 text-sm font-bold uppercase tracking-widest text-slate-500">
               Squad — call-ups
             </h2>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mb-4 text-sm text-slate-600">
               Selected players for <span className="font-mono">{season || "—"}</span> (set in Admin →
               International call-ups).
             </p>
             {callupsList.length === 0 ?
-              <p className="mt-4 text-sm text-slate-500">
+              <p className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-500">
                 No call-ups recorded for this season yet.
               </p>
-            : <ul className="mt-4 divide-y divide-slate-100 rounded-xl border border-slate-200/80">
+            : <ul className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
                 {callupsList.map((row) => {
                   const pl = row.players as
                     | {
@@ -604,7 +686,7 @@ export default async function CountryPage({
                   return (
                     <li
                       key={row.slot}
-                      className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5 first:rounded-t-xl last:rounded-b-xl"
+                      className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
                     >
                       <span className="w-12 shrink-0 font-mono text-xs font-bold text-slate-500">
                         {row.slot}
@@ -743,64 +825,35 @@ export default async function CountryPage({
         )}
 
         {nt && season.trim() && (
-          <section className="mb-8 rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-bold uppercase tracking-widest text-slate-500">
+          <section className="mb-8">
+            <h2 className="mb-1 text-sm font-bold uppercase tracking-widest text-slate-500">
               Eligible players (not called up)
             </h2>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mb-4 text-sm text-slate-600">
               Same nationality as <strong>{country.name}</strong> this season — available for selection in Admin call-ups.
             </p>
             {availablePool.length === 0 ?
-              <p className="mt-4 text-sm text-slate-500">
+              <p className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-500">
                 {nationalityPool?.length ?
                   "Everyone in the pool is already in the squad above."
                 : "No players found with this nationality."}
               </p>
-            : <ul className="mt-4 divide-y divide-slate-100 rounded-xl border border-slate-200/80">
-                {sortedAvailablePool.map((raw) => {
-                  const pl = raw as {
-                    id: string;
-                    name: string;
-                    role: string;
-                    profile_pic_url: string | null;
-                    market_value?: number | null;
-                    team_id?: string | null;
-                    teams?: { id: string; name: string; logo_url: string | null } | { id: string; name: string; logo_url: string | null }[] | null;
-                  };
-                  const club = Array.isArray(pl.teams) ? pl.teams[0] : pl.teams;
-                  return (
-                    <li
-                      key={pl.id}
-                      className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5 first:rounded-t-xl last:rounded-b-xl"
-                    >
-                      <Link
-                        href={`/player/${pl.id}`}
-                        className="flex min-w-0 flex-1 items-center gap-2 font-semibold text-slate-900 hover:text-emerald-800 hover:underline"
-                      >
-                        <PlayerAvatar name={pl.name} profilePicUrl={pl.profile_pic_url} />
-                        <span className="truncate">{pl.name}</span>
-                      </Link>
-                      <span className="shrink-0 text-xs text-slate-500">{pl.role}</span>
-                      <div className="flex w-full basis-full items-center justify-end gap-3 text-xs sm:w-auto sm:basis-auto">
-                        {club ?
-                          <Link
-                            href={`/team/${club.id}`}
-                            className="inline-flex items-center gap-1.5 font-medium text-slate-700 hover:text-emerald-800 hover:underline"
-                          >
-                            {club.logo_url ?
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={club.logo_url} alt="" className="h-5 w-5 rounded object-contain" />
-                            : null}
-                            {club.name}
-                          </Link>
-                        : <span className="text-slate-400">No club</span>}
-                        <span className="font-mono text-slate-500">
-                          {formatMoneyPounds(Number(pl.market_value ?? 0))}
-                        </span>
-                      </div>
-                    </li>
-                  );
-                })}
+            : <ul className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
+                {eligibleStrikers.map((raw) => (
+                  <EligiblePlayerRow key={(raw as EligiblePoolPlayer).id} pl={raw as EligiblePoolPlayer} />
+                ))}
+                {eligibleStrikers.length > 0 && eligibleGks.length > 0 ?
+                  <EligibleRoleDivider label="Goalkeepers" />
+                : null}
+                {eligibleGks.map((raw) => (
+                  <EligiblePlayerRow key={(raw as EligiblePoolPlayer).id} pl={raw as EligiblePoolPlayer} />
+                ))}
+                {(eligibleStrikers.length > 0 || eligibleGks.length > 0) && eligibleOther.length > 0 ?
+                  <EligibleRoleDivider label="Other positions" />
+                : null}
+                {eligibleOther.map((raw) => (
+                  <EligiblePlayerRow key={(raw as EligiblePoolPlayer).id} pl={raw as EligiblePoolPlayer} />
+                ))}
               </ul>
             }
           </section>

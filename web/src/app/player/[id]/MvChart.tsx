@@ -13,8 +13,11 @@ import {
 
 export function MvChart({
   data,
+  className = "",
 }: {
   data: { season: string; mv: number }[];
+  /** Extra classes on the chart area (use h-full when parent sets height). */
+  className?: string;
 }) {
   if (data.length === 0) {
     return (
@@ -25,7 +28,9 @@ export function MvChart({
   }
 
   return (
-    <div className="h-56 w-full min-h-[14rem] sm:h-64">
+    <div
+      className={`flex h-44 w-full flex-col sm:h-48 xl:h-full xl:min-h-0 xl:flex-1 ${className}`.trim()}
+    >
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />

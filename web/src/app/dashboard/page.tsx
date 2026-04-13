@@ -440,6 +440,7 @@ export default async function DashboardPage({
       pic: string | null;
       team: string | null;
       logo: string | null;
+      natFlag: string | null;
     }[];
     topSavers: {
       playerId: string;
@@ -449,6 +450,7 @@ export default async function DashboardPage({
       pic: string | null;
       team: string | null;
       logo: string | null;
+      natFlag: string | null;
     }[];
   } | null = null;
   if (selectedSeason && nav.group === "rankings") {
@@ -468,11 +470,16 @@ export default async function DashboardPage({
           { data: [] as Record<string, unknown>[] }
         : await supabase
             .from("players")
-            .select("id, name, role, profile_pic_url, teams(name, logo_url)")
+            .select("id, name, role, nationality, profile_pic_url, teams(name, logo_url)")
             .in("id", ids);
       const pmap = new Map(
         (pls ?? []).map((p) => {
           const t = p.teams as { name?: string; logo_url?: string | null } | null;
+          const nat = typeof p.nationality === "string" ? p.nationality.trim() : "";
+          const natFlag =
+            nat ?
+              (countryFlag.get(nat.toLowerCase()) as string | null | undefined)?.trim() || null
+            : null;
           return [
             p.id as string,
             {
@@ -481,11 +488,12 @@ export default async function DashboardPage({
               pic: (p.profile_pic_url as string | null) ?? null,
               team: t?.name ?? null,
               logo: t?.logo_url ?? null,
+              natFlag,
             },
           ];
         }),
       );
-      dashGoalSaveLeaderboards = {
+        dashGoalSaveLeaderboards = {
         topScorers: raw.topScorers.map((r) => {
           const m = pmap.get(r.playerId);
           return {
@@ -496,6 +504,7 @@ export default async function DashboardPage({
             pic: m?.pic ?? null,
             team: m?.team ?? null,
             logo: m?.logo ?? null,
+            natFlag: m?.natFlag ?? null,
           };
         }),
         topSavers: raw.topSavers.map((r) => {
@@ -508,6 +517,7 @@ export default async function DashboardPage({
             pic: m?.pic ?? null,
             team: m?.team ?? null,
             logo: m?.logo ?? null,
+            natFlag: m?.natFlag ?? null,
           };
         }),
       };
@@ -1573,6 +1583,11 @@ export default async function DashboardPage({
                                 <span className="w-7 shrink-0 text-center font-mono text-sm font-bold text-emerald-700">
                                   {i + 1}
                                 </span>
+                                {r.natFlag ?
+                                  <span className="shrink-0 text-lg leading-none" title="Nationality">
+                                    {r.natFlag}
+                                  </span>
+                                : null}
                                 <PlayerAvatar name={r.name} profilePicUrl={r.pic} sizeClassName="h-10 w-10 shrink-0" />
                                 <div className="min-w-0 flex-1">
                                   <p className="truncate font-bold text-slate-900">{r.name}</p>
@@ -1619,6 +1634,11 @@ export default async function DashboardPage({
                                 <span className="w-7 shrink-0 text-center font-mono text-sm font-bold text-sky-700">
                                   {i + 1}
                                 </span>
+                                {r.natFlag ?
+                                  <span className="shrink-0 text-lg leading-none" title="Nationality">
+                                    {r.natFlag}
+                                  </span>
+                                : null}
                                 <PlayerAvatar name={r.name} profilePicUrl={r.pic} sizeClassName="h-10 w-10 shrink-0" />
                                 <div className="min-w-0 flex-1">
                                   <p className="truncate font-bold text-slate-900">{r.name}</p>

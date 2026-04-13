@@ -284,7 +284,9 @@ export default async function GoatsPage() {
                           <h2
                             className={`text-center text-2xl text-amber-50/95 sm:text-left sm:text-3xl ${display.className}`}
                           >
-                            Season {row.seasonLabel}
+                            {/^season\s+/i.test(row.seasonLabel) ?
+                              row.seasonLabel
+                            : `Season ${row.seasonLabel}`}
                           </h2>
                           <span className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-stone-500">
                             Dual honours

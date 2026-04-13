@@ -3,12 +3,35 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { countryCodeToFlagEmoji } from "@/lib/flags";
 import { hasDomesticClubFootball } from "@/lib/dashboardLinks";
 import { computeNationalTeamPointsFromFixtures } from "@/lib/nationalTeamRanking";
+import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
+import { formatMoneyPounds } from "@/lib/formatMoney";
 
 export const revalidate = 60;
 
-export default async function NationalTeamsIndexPage() {
+function countriesIndexQuery(parts: Record<string, string | undefined>): string {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(parts)) {
+    if (v) p.set(k, v);
+  }
+  const s = p.toString();
+  return s ? `?${s}` : "";
+}
+
+export default async function NationalTeamsIndexPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = (await searchParams) ?? {};
+  const rankBy =
+    typeof sp.rank === "string" && sp.rank.toLowerCase() === "mv" ? "mv" : "rating";
+  const squadBasis =
+    typeof sp.squad === "string" && sp.squad.toLowerCase() === "callups" ? "callups" : "pool";
+  const seasonFromUrl = typeof sp.season === "string" ? sp.season.trim() : "";
+  const seasonLabel = seasonFromUrl || (await getCurrentSeasonLabel()) || "";
+
   const supabase = getSupabaseAdmin();
-  const [{ data: ntsRaw }, { data: intlFx }] = await Promise.all([
+  const [{ data: ntsRaw }, { data: intlFx }, { data: seasonsRows }] = await Promise.all([
     supabase
       .from("national_teams")
       .select("id, name, confederation, flag_emoji, countries(code, name, flag_emoji)"),
@@ -18,10 +41,57 @@ export default async function NationalTeamsIndexPage() {
         "home_national_team_id, away_national_team_id, home_score, away_score, stage, status",
       )
       .eq("status", "completed"),
+    supabase.from("seasons").select("label").order("created_at", { ascending: false }),
   ]);
 
   const pointsRows = computeNationalTeamPointsFromFixtures(intlFx ?? []);
   const pointsByNt = new Map(pointsRows.map((r) => [r.nationalTeamId, r]));
+
+  type NtRow = NonNullable<typeof ntsRaw>[number];
+  const countryNameByNtId = new Map<string, string>();
+  for (const t of ntsRaw ?? []) {
+    const c = t.countries as { name?: string } | { name?: string }[] | null | undefined;
+    const one = Array.isArray(c) ? c[0] : c;
+    const nm = typeof one?.name === "string" ? one.name : null;
+    if (nm) countryNameByNtId.set(t.id as string, nm);
+  }
+  const distinctCountryNames = [...new Set(countryNameByNtId.values())];
+  const poolMvByNationality = new Map<string, number>();
+  if (distinctCountryNames.length > 0) {
+    const { data: poolPlayers } = await supabase
+      .from("players")
+      .select("nationality, market_value")
+      .in("nationality", distinctCountryNames);
+    for (const n of distinctCountryNames) poolMvByNationality.set(n, 0);
+    for (const p of poolPlayers ?? []) {
+      const nat = String(p.nationality ?? "");
+      if (!poolMvByNationality.has(nat)) continue;
+      poolMvByNationality.set(
+        nat,
+        (poolMvByNationality.get(nat) ?? 0) + Number(p.market_value ?? 0),
+      );
+    }
+  }
+  const poolMvByNtId = new Map<string, number>();
+  for (const t of ntsRaw ?? []) {
+    const nm = countryNameByNtId.get(t.id as string);
+    poolMvByNtId.set(t.id as string, nm ? (poolMvByNationality.get(nm) ?? 0) : 0);
+  }
+
+  const callupMvByNtId = new Map<string, number>();
+  if (seasonLabel) {
+    for (const t of ntsRaw ?? []) callupMvByNtId.set(t.id as string, 0);
+    const { data: cupRows } = await supabase
+      .from("national_team_callups")
+      .select("national_team_id, players(market_value)")
+      .eq("season_label", seasonLabel);
+    for (const row of cupRows ?? []) {
+      const tid = row.national_team_id as string;
+      if (!callupMvByNtId.has(tid)) continue;
+      const pl = row.players as { market_value?: unknown } | null;
+      callupMvByNtId.set(tid, (callupMvByNtId.get(tid) ?? 0) + Number(pl?.market_value ?? 0));
+    }
+  }
 
   function confRank(c: string | null | undefined) {
     const u = (c ?? "").toUpperCase();
@@ -43,6 +113,14 @@ export default async function NationalTeamsIndexPage() {
   });
 
   const rankingSorted = [...nts].sort((a, b) => {
+    if (rankBy === "mv") {
+      const va =
+        squadBasis === "callups" ? (callupMvByNtId.get(a.id) ?? 0) : (poolMvByNtId.get(a.id) ?? 0);
+      const vb =
+        squadBasis === "callups" ? (callupMvByNtId.get(b.id) ?? 0) : (poolMvByNtId.get(b.id) ?? 0);
+      if (vb !== va) return vb - va;
+      return a.name.localeCompare(b.name);
+    }
     const pa = pointsByNt.get(a.id)?.rating ?? 0;
     const pb = pointsByNt.get(b.id)?.rating ?? 0;
     if (pb !== pa) return pb - pa;
@@ -54,7 +132,19 @@ export default async function NationalTeamsIndexPage() {
     return a.name.localeCompare(b.name);
   });
 
-  function NtCard({ t }: { t: (typeof nts)[0] }) {
+  const hrefRating = `/countries${countriesIndexQuery({ season: seasonLabel || undefined })}`;
+  const hrefMvPool = `/countries${countriesIndexQuery({ rank: "mv", squad: undefined, season: seasonLabel || undefined })}`;
+  const hrefMvCallups = `/countries${countriesIndexQuery({ rank: "mv", squad: "callups", season: seasonLabel || undefined })}`;
+
+  function NtCard({
+    t,
+    rankMode,
+    squadMode,
+  }: {
+    t: NtRow;
+    rankMode: "rating" | "mv";
+    squadMode: "pool" | "callups";
+  }) {
     const c = t.countries as
       | { code: string; name: string; flag_emoji: string | null }
       | { code: string; name: string; flag_emoji: string | null }[]
@@ -67,6 +157,14 @@ export default async function NationalTeamsIndexPage() {
       countryCodeToFlagEmoji(code);
     const domestic = country?.name ? hasDomesticClubFootball(country.name) : false;
     const pts = pointsByNt.get(t.id);
+    const poolV = poolMvByNtId.get(t.id) ?? 0;
+    const cupV = callupMvByNtId.get(t.id) ?? 0;
+    const mvLine =
+      rankMode === "mv" ?
+        squadMode === "callups" ?
+          `Call-ups ${formatMoneyPounds(cupV)}`
+        : `All nationals ${formatMoneyPounds(poolV)}`
+      : null;
     return (
       <Link
         href={`/countries/${code.toLowerCase()}`}
@@ -77,14 +175,17 @@ export default async function NationalTeamsIndexPage() {
         <p className="mt-1 text-xs font-bold uppercase tracking-wider text-slate-500">
           {t.confederation}
         </p>
-        <p className="mt-2 font-mono text-sm font-bold tabular-nums text-slate-800">
-          {pts ? `${pts.rating} rating` : "0 rating"}
-          {pts && pts.played > 0 ?
-            <span className="ml-2 font-sans text-xs font-medium text-slate-500">
-              ({pts.won}-{pts.drawn}-{pts.lost})
-            </span>
-          : null}
-        </p>
+        {rankMode === "mv" ?
+          <p className="mt-2 font-mono text-sm font-bold tabular-nums text-slate-800">{mvLine}</p>
+        : <p className="mt-2 font-mono text-sm font-bold tabular-nums text-slate-800">
+            {pts ? `${pts.rating} rating` : "0 rating"}
+            {pts && pts.played > 0 ?
+              <span className="ml-2 font-sans text-xs font-medium text-slate-500">
+                ({pts.won}-{pts.drawn}-{pts.lost})
+              </span>
+            : null}
+          </p>
+        }
         {domestic ?
           <p className="mt-3 text-xs font-semibold text-emerald-800">Domestic clubs modeled</p>
         : <p className="mt-3 text-xs text-slate-500">International only (no club pyramid)</p>}
@@ -121,11 +222,108 @@ export default async function NationalTeamsIndexPage() {
           </div>
         : <>
             <section className="mt-8 rounded-2xl border border-slate-300/90 bg-white p-5 shadow-sm">
-              <h2 className="text-lg font-bold text-slate-900">Federation ranking (rating)</h2>
-              <p className="mt-1 text-xs text-slate-600">
-                Net rating from all completed international fixtures: wins add points (with extra weight in semis and
-                finals), draws add 1, losses subtract (heavier in knockouts). Rating can go negative. Sorted by rating,
-                then W−L, then name.
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                <h2 className="text-lg font-bold text-slate-900">
+                  {rankBy === "mv" ? "Federation ranking (market value)" : "Federation ranking (rating)"}
+                </h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[0.65rem] font-bold uppercase tracking-wide text-slate-400">
+                    Sort
+                  </span>
+                  <Link
+                    href={hrefRating}
+                    className={`rounded-full px-3 py-1.5 text-xs font-bold ${
+                      rankBy === "rating" ?
+                        "bg-emerald-700 text-white shadow-sm"
+                      : "border border-slate-300 bg-white text-slate-700 hover:border-emerald-400"
+                    }`}
+                  >
+                    Rating
+                  </Link>
+                  <Link
+                    href={hrefMvPool}
+                    className={`rounded-full px-3 py-1.5 text-xs font-bold ${
+                      rankBy === "mv" && squadBasis === "pool" ?
+                        "bg-emerald-700 text-white shadow-sm"
+                      : "border border-slate-300 bg-white text-slate-700 hover:border-emerald-400"
+                    }`}
+                  >
+                    Total MV
+                  </Link>
+                </div>
+              </div>
+              {rankBy === "mv" ?
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="text-[0.65rem] font-bold uppercase tracking-wide text-slate-400">
+                    MV basis
+                  </span>
+                  <Link
+                    href={hrefMvPool}
+                    className={`rounded-full px-3 py-1.5 text-xs font-bold ${
+                      squadBasis === "pool" ?
+                        "bg-slate-800 text-white shadow-sm"
+                      : "border border-slate-300 bg-white text-slate-700 hover:border-slate-400"
+                    }`}
+                  >
+                    All nationals
+                  </Link>
+                  <Link
+                    href={hrefMvCallups}
+                    className={`rounded-full px-3 py-1.5 text-xs font-bold ${
+                      squadBasis === "callups" ?
+                        "bg-slate-800 text-white shadow-sm"
+                      : "border border-slate-300 bg-white text-slate-700 hover:border-slate-400"
+                    }`}
+                  >
+                    Called-up squad
+                  </Link>
+                  <form action="/countries" method="get" className="ml-1 inline-flex flex-wrap items-center gap-2">
+                    <input type="hidden" name="rank" value="mv" />
+                    <input type="hidden" name="squad" value={squadBasis} />
+                    <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                      <span className="font-semibold text-slate-500">Season</span>
+                      <select
+                        name="season"
+                        defaultValue={seasonLabel}
+                        className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-900"
+                      >
+                        {(seasonsRows ?? []).map((s) => (
+                          <option key={s.label} value={s.label}>
+                            {s.label}
+                          </option>
+                        ))}
+                        {seasonLabel && !(seasonsRows ?? []).some((s) => s.label === seasonLabel) ?
+                          <option value={seasonLabel}>{seasonLabel}</option>
+                        : null}
+                      </select>
+                    </label>
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-slate-800 px-2.5 py-1 text-xs font-bold text-white hover:bg-slate-900"
+                    >
+                      Apply
+                    </button>
+                  </form>
+                </div>
+              : null}
+              <p className="mt-2 text-xs text-slate-600">
+                {rankBy === "rating" ?
+                  <>
+                    Net rating from all completed international fixtures: wins add points (with extra weight in semis
+                    and finals), draws add 1, losses subtract (heavier in knockouts). Rating can go negative. Sorted by
+                    rating, then W−L, then name.
+                  </>
+                : squadBasis === "pool" ?
+                  <>
+                    Sum of <strong>market value</strong> for every player with that nationality (full pool). Sorted by
+                    total descending.
+                  </>
+                : <>
+                    Sum of <strong>market value</strong> for the season&apos;s three call-up slots per nation. Uses
+                    season{" "}
+                    <span className="font-mono font-semibold text-slate-800">{seasonLabel || "—"}</span>. Sorted by
+                    total descending.
+                  </>}
               </p>
               <div className="mt-4 overflow-x-auto">
                 <table className="w-full min-w-[320px] text-sm">
@@ -134,10 +332,14 @@ export default async function NationalTeamsIndexPage() {
                       <th className="py-2 pr-3">#</th>
                       <th className="py-2 pr-3">Team</th>
                       <th className="py-2 pr-3">Confed.</th>
-                      <th className="py-2 text-right">Rtg</th>
-                      <th className="py-2 text-right">W</th>
-                      <th className="py-2 text-right">D</th>
-                      <th className="py-2 text-right">L</th>
+                      {rankBy === "rating" ?
+                        <>
+                          <th className="py-2 text-right">Rtg</th>
+                          <th className="py-2 text-right">W</th>
+                          <th className="py-2 text-right">D</th>
+                          <th className="py-2 text-right">L</th>
+                        </>
+                      : <th className="py-2 text-right">MV</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -151,6 +353,8 @@ export default async function NationalTeamsIndexPage() {
                       const code =
                         typeof codeRaw === "string" ? codeRaw.toLowerCase() : "";
                       const p = pointsByNt.get(t.id);
+                      const mvVal =
+                        squadBasis === "callups" ? (callupMvByNtId.get(t.id) ?? 0) : (poolMvByNtId.get(t.id) ?? 0);
                       const rowFlag =
                         (countryRow?.flag_emoji as string | null) ??
                         (t.flag_emoji as string | null) ??
@@ -170,18 +374,24 @@ export default async function NationalTeamsIndexPage() {
                           <td className="py-2.5 pr-3 text-xs font-semibold uppercase text-slate-500">
                             {t.confederation}
                           </td>
-                          <td className="py-2.5 text-right font-mono font-bold tabular-nums">
-                            {p?.rating ?? 0}
-                          </td>
-                          <td className="py-2.5 text-right font-mono tabular-nums text-slate-600">
-                            {p?.won ?? 0}
-                          </td>
-                          <td className="py-2.5 text-right font-mono tabular-nums text-slate-600">
-                            {p?.drawn ?? 0}
-                          </td>
-                          <td className="py-2.5 text-right font-mono tabular-nums text-slate-600">
-                            {p?.lost ?? 0}
-                          </td>
+                          {rankBy === "rating" ?
+                            <>
+                              <td className="py-2.5 text-right font-mono font-bold tabular-nums">
+                                {p?.rating ?? 0}
+                              </td>
+                              <td className="py-2.5 text-right font-mono tabular-nums text-slate-600">
+                                {p?.won ?? 0}
+                              </td>
+                              <td className="py-2.5 text-right font-mono tabular-nums text-slate-600">
+                                {p?.drawn ?? 0}
+                              </td>
+                              <td className="py-2.5 text-right font-mono tabular-nums text-slate-600">
+                                {p?.lost ?? 0}
+                              </td>
+                            </>
+                          : <td className="py-2.5 text-right font-mono font-bold tabular-nums text-slate-900">
+                              {formatMoneyPounds(mvVal)}
+                            </td>}
                         </tr>
                       );
                     })}
@@ -195,7 +405,7 @@ export default async function NationalTeamsIndexPage() {
               <p className="mt-1 text-sm text-slate-600">European national teams in this sim.</p>
               <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {uefa.map((t) => (
-                  <NtCard key={t.id} t={t} />
+                  <NtCard key={t.id} t={t} rankMode={rankBy} squadMode={squadBasis} />
                 ))}
               </div>
             </section>
@@ -205,7 +415,7 @@ export default async function NationalTeamsIndexPage() {
               <p className="mt-1 text-sm text-slate-600">Rest-of-world national teams (non-UEFA) in this sim.</p>
               <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {fifa.map((t) => (
-                  <NtCard key={t.id} t={t} />
+                  <NtCard key={t.id} t={t} rankMode={rankBy} squadMode={squadBasis} />
                 ))}
               </div>
             </section>
@@ -216,7 +426,7 @@ export default async function NationalTeamsIndexPage() {
                 <p className="mt-1 text-sm text-slate-600">Additional national teams not under UEFA or FIFA labels.</p>
                 <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {otherConf.map((t) => (
-                    <NtCard key={t.id} t={t} />
+                    <NtCard key={t.id} t={t} rankMode={rankBy} squadMode={squadBasis} />
                   ))}
                 </div>
               </section>

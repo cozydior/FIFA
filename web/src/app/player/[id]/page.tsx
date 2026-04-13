@@ -499,17 +499,17 @@ export default async function PlayerPage({
           </div>
         </div>
 
-        <div className="mt-8 grid gap-8 xl:grid-cols-2 xl:items-start xl:gap-10">
-        <section className="min-w-0">
+        <div className="mt-8 grid gap-8 xl:grid-cols-2 xl:items-stretch xl:gap-10">
+        <section className="flex h-full min-h-0 min-w-0 flex-col">
           <h2 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-500">
             Market value over time
           </h2>
-          <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm sm:p-5">
+          <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm sm:p-5">
             <MvChart data={chartData} />
           </div>
         </section>
 
-        <section className="min-w-0">
+        <section className="flex h-full min-h-0 min-w-0 flex-col">
           <h2 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-500">
             League — {currentSeason ?? "current season"}
             {team && (
@@ -518,7 +518,7 @@ export default async function PlayerPage({
               </span>
             )}
           </h2>
-          <div className="rounded-2xl border border-emerald-200/80 bg-emerald-50/50 p-5 shadow-sm sm:p-6">
+          <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-emerald-200/80 bg-emerald-50/50 p-5 shadow-sm sm:p-6">
             <dl className="grid gap-4 sm:grid-cols-2">
               {player.role !== "GK" && (
                 <div className="flex items-center justify-between gap-4 border-b border-emerald-100/80 pb-3 sm:border-0 sm:pb-0">

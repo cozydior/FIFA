@@ -153,7 +153,12 @@ export default async function TeamPage({
     const d = roleRank(a.role) - roleRank(b.role);
     return d !== 0 ? d : a.name.localeCompare(b.name);
   });
-  const strikers = squadSorted.filter((p) => p.role === "ST");
+  const strikers = squadSorted
+    .filter((p) => p.role === "ST")
+    .sort((a, b) => {
+      const mv = Number(b.market_value ?? 0) - Number(a.market_value ?? 0);
+      return mv !== 0 ? mv : a.name.localeCompare(b.name);
+    });
   const goalkeepers = squadSorted.filter((p) => p.role === "GK");
 
   const { data: countryRows } = await supabase

@@ -11,7 +11,7 @@ import {
   parseTrophyList,
   type TrophyDefinitionRow,
 } from "@/lib/trophyCabinet";
-import { Trophy } from "lucide-react";
+import { ChevronDown, Trophy } from "lucide-react";
 import { HonourCategoryBlock, HonourCabinetChips } from "@/components/HonourCabinetCompact";
 import {
   filterCabinetBySlugs,
@@ -643,6 +643,67 @@ export default async function PlayerPage({
         </section>
       )}
 
+      {transferRows.length > 0 && (
+        <details className="group mt-8 rounded-xl border border-slate-200 bg-white shadow-sm open:shadow-md">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+            <h2 className="text-xs font-bold uppercase tracking-widest text-slate-500">
+              Transfer history
+            </h2>
+            <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
+          </summary>
+          <ul className="space-y-2 border-t border-slate-100 px-4 py-3">
+            {transferRows.map((tx) => {
+              const t = Array.isArray(tx.teams) ? tx.teams[0] : tx.teams;
+              const { label, colour } = txCategoryDisplay(tx.category);
+              const labelColour =
+                colour === "green" ? "font-semibold text-emerald-800"
+                : colour === "amber" ? "font-semibold text-amber-900"
+                : colour === "red" ? "font-semibold text-rose-700"
+                : "font-semibold text-slate-600";
+              const pid = parsePlayerNameFromTransferNote(tx.note);
+              const playerHref = pid ? txPlayerIds.get(pid) : undefined;
+              return (
+                <li
+                  key={tx.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm"
+                >
+                  <span className="flex min-w-0 flex-wrap items-center gap-2">
+                    {t?.logo_url ?
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={t.logo_url}
+                        alt=""
+                        className="h-8 w-8 shrink-0 rounded-md object-contain"
+                      />
+                    : null}
+                    <span className={labelColour}>{label}</span>
+                    <span className="text-slate-600">
+                      {t?.name ?
+                        <span className="font-semibold">{t.name}</span>
+                      : playerHref ?
+                        <Link href={`/player/${playerHref}`} className="font-semibold hover:underline">
+                          {pid}
+                        </Link>
+                      : <span className="font-semibold">{tx.note ?? "—"}</span>}
+                    </span>
+                  </span>
+                  <span className="font-mono text-xs text-slate-500">{tx.season_label}</span>
+                  <span
+                    className={
+                      Number(tx.amount) <= 0 ?
+                        "font-mono font-bold text-red-700"
+                      : "font-mono font-bold text-emerald-700"
+                    }
+                  >
+                    {formatMoneyPounds(Number(Math.abs(tx.amount)))}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+      )}
+
       <section className="mt-8">
         <h2 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-500">
           Season-by-season (league)
@@ -710,64 +771,6 @@ export default async function PlayerPage({
           </table>
         </div>
       </section>
-
-      {transferRows.length > 0 && (
-        <section className="mt-8">
-          <h2 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-500">
-            Transfer history
-          </h2>
-          <ul className="space-y-2">
-            {transferRows.map((tx) => {
-              const t = Array.isArray(tx.teams) ? tx.teams[0] : tx.teams;
-              const { label, colour } = txCategoryDisplay(tx.category);
-              const labelColour =
-                colour === "green" ? "font-semibold text-emerald-800"
-                : colour === "amber" ? "font-semibold text-amber-900"
-                : colour === "red" ? "font-semibold text-rose-700"
-                : "font-semibold text-slate-600";
-              const pid = parsePlayerNameFromTransferNote(tx.note);
-              const playerHref = pid ? txPlayerIds.get(pid) : undefined;
-              return (
-                <li
-                  key={tx.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm"
-                >
-                  <span className="flex min-w-0 flex-wrap items-center gap-2">
-                    {t?.logo_url ?
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={t.logo_url}
-                        alt=""
-                        className="h-8 w-8 shrink-0 rounded-md object-contain"
-                      />
-                    : null}
-                    <span className={labelColour}>{label}</span>
-                    <span className="text-slate-600">
-                      {t?.name ?
-                        <span className="font-semibold">{t.name}</span>
-                      : playerHref ?
-                        <Link href={`/player/${playerHref}`} className="font-semibold hover:underline">
-                          {pid}
-                        </Link>
-                      : <span className="font-semibold">{tx.note ?? "—"}</span>}
-                    </span>
-                  </span>
-                  <span className="font-mono text-xs text-slate-500">{tx.season_label}</span>
-                  <span
-                    className={
-                      Number(tx.amount) <= 0 ?
-                        "font-mono font-bold text-red-700"
-                      : "font-mono font-bold text-emerald-700"
-                    }
-                  >
-                    {formatMoneyPounds(Number(Math.abs(tx.amount)))}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
 
       <section className="mt-8">
         <h2 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-500">

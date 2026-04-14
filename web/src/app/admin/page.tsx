@@ -10,6 +10,7 @@ import {
   ChevronDown,
   Database,
   Globe2,
+  History,
   Landmark,
   Loader2,
   Medal,
@@ -32,6 +33,7 @@ import { formatApplyWagesResponseMessage } from "@/lib/formatApplyWagesMessage";
 import { parseTrophyList, type TrophyCabinetEntry } from "@/lib/trophyCabinet";
 import { TROPHY_CABINET_SCOPES } from "@/lib/trophyCabinetScope";
 import { squadAnnualWageBill } from "@/lib/economy";
+import { compareSeasonLabelsDesc } from "@/lib/seasonLabelSort";
 
 type League = {
   id: string;
@@ -432,6 +434,7 @@ export default function AdminPage() {
           <>
             <TransferMarketSection teams={teams} onSuccess={refreshLists} />
             <ResetPeakMarketValueSection onSuccess={refreshLists} />
+            <SyncMvHistoryForSeasonSection seasons={seasons} />
             <BackfillStatsTeamIdSection />
             <ReleasePlayerSection players={players} onSuccess={refreshLists} />
             <FreeAgencyPickupSection players={players} teams={teams} onSuccess={refreshLists} />
@@ -2010,6 +2013,103 @@ function ResetPeakMarketValueSection({
         {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
         Reset all peaks to current MV
       </button>
+      {message && <p className="mt-2 text-xs text-zinc-700">{message}</p>}
+    </section>
+  );
+}
+
+function SyncMvHistoryForSeasonSection({
+  seasons,
+}: {
+  seasons: { id: string; label: string }[];
+}) {
+  const sortedLabels = useMemo(
+    () =>
+      [...new Set(seasons.map((s) => s.label.trim()).filter(Boolean))].sort(compareSeasonLabelsDesc),
+    [seasons],
+  );
+  const [seasonLabel, setSeasonLabel] = useState("");
+  const initRef = useRef(false);
+  useEffect(() => {
+    if (initRef.current || sortedLabels.length === 0) return;
+    initRef.current = true;
+    setSeasonLabel(sortedLabels.length >= 2 ? sortedLabels[1]! : sortedLabels[0]!);
+  }, [sortedLabels]);
+
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function run() {
+    const label = seasonLabel.trim();
+    if (!label) {
+      setMessage("Pick a season label.");
+      return;
+    }
+    setPending(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/admin/sync-mv-history-for-season", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seasonLabel: label }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      setMessage(
+        `Synced MV history for “${data.seasonLabel}”: ${data.rows ?? 0} player row(s). Each player’s graph point for that season now matches their current market value.`,
+      );
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-4 shadow-sm">
+      <div className="mb-2 flex items-center gap-2 text-zinc-900">
+        <History className="h-4 w-4 text-zinc-600" aria-hidden />
+        <h3 className="text-sm font-semibold">MV history (graph / trends)</h3>
+      </div>
+      <p className="mb-3 text-xs text-zinc-600">
+        Writes every player&apos;s <strong>current</strong> <code className="rounded bg-white px-1 font-mono text-[0.65rem]">market_value</code> into{" "}
+        <code className="rounded bg-white px-1 font-mono text-[0.65rem]">player_market_value_history</code> for the
+        season you pick. Use once to repair a past season if charts or &quot;vs last season&quot; looked wrong after
+        international games (new sims keep this in sync automatically).
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex min-w-[12rem] flex-1 flex-col gap-1 text-xs font-medium text-zinc-700">
+          Season label
+          {sortedLabels.length > 0 ?
+            <select
+              value={seasonLabel}
+              onChange={(e) => setSeasonLabel(e.target.value)}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-normal text-zinc-900"
+            >
+              {sortedLabels.map((l) => (
+                <option key={l} value={l}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          : <input
+              value={seasonLabel}
+              onChange={(e) => setSeasonLabel(e.target.value)}
+              placeholder="e.g. Season 2"
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-normal text-zinc-900"
+            />
+          }
+        </label>
+        <button
+          type="button"
+          onClick={() => void run()}
+          disabled={pending || !seasonLabel.trim()}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+        >
+          {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <History className="h-3.5 w-3.5" />}
+          Sync history for season
+        </button>
+      </div>
       {message && <p className="mt-2 text-xs text-zinc-700">{message}</p>}
     </section>
   );

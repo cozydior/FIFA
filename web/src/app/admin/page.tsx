@@ -17,6 +17,7 @@ import {
   Shield,
   Plus,
   RotateCcw,
+  Scale,
   Trash2,
   Trophy,
   UserMinus,
@@ -440,6 +441,7 @@ export default function AdminPage() {
             <ReleasePlayerSection players={players} onSuccess={refreshLists} />
             <FreeAgencyPickupSection players={players} teams={teams} onSuccess={refreshLists} />
             <ApplyWagesSection />
+            <ReconcileTeamBalancesSection onSuccess={refreshLists} />
             <ResetSimulationSection onSuccess={refreshLists} />
             <InsolvencySection />
           </>
@@ -1904,6 +1906,162 @@ function ApplyWagesSection() {
       {message && (
         <p className="mt-3 text-sm text-zinc-700">{message}</p>
       )}
+    </section>
+  );
+}
+
+type BalanceDriftRow = {
+  teamId: string;
+  name: string;
+  budget: number;
+  sumTransactions: number;
+  currentBalance: number;
+  expectedBalance: number;
+  drift: number;
+};
+
+function ReconcileTeamBalancesSection({
+  onSuccess,
+}: {
+  onSuccess: () => void | Promise<void>;
+}) {
+  const [pending, setPending] = useState<"scan" | "fix" | null>(null);
+  const [mismatches, setMismatches] = useState<BalanceDriftRow[] | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function scan() {
+    setPending("scan");
+    setMessage(null);
+    try {
+      const res = await fetch("/api/admin/reconcile-team-balances", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      const rows = (data.mismatches ?? []) as BalanceDriftRow[];
+      setMismatches(rows);
+      if (rows.length === 0) {
+        setMessage("All clubs match the ledger: each balance equals budget plus the sum of its transaction rows.");
+      } else {
+        setMessage(
+          `${rows.length} club(s) do not match that formula. Compare Current vs Expected — if Expected is right, use Fix balances.`,
+        );
+      }
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Failed");
+      setMismatches(null);
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function fix() {
+    setPending("fix");
+    setMessage(null);
+    try {
+      const res = await fetch("/api/admin/reconcile-team-balances", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apply: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      const remaining = (data.remaining ?? []) as BalanceDriftRow[];
+      setMismatches(remaining);
+      await onSuccess();
+      const fixed = Number(data.fixed ?? 0);
+      if (remaining.length === 0) {
+        setMessage(`Updated ${fixed} club balance(s). All match the ledger now.`);
+      } else {
+        setMessage(
+          `Updated ${fixed} club(s). ${remaining.length} still drift — check whether budgets were edited without matching transactions.`,
+        );
+      }
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setPending(null);
+    }
+  }
+
+  return (
+    <section className="rounded-2xl border border-slate-300/90 bg-white p-6 shadow-sm">
+      <div className="mb-4 flex items-center gap-2 text-zinc-900">
+        <Scale className="h-5 w-5 text-emerald-600" aria-hidden />
+        <h2 className="text-lg font-semibold">Club balances vs ledger</h2>
+      </div>
+      <p className="mb-3 text-sm text-zinc-600">
+        <strong>Expected balance</strong> is each club&apos;s <code className="rounded bg-zinc-100 px-1 font-mono text-xs">budget</code>{" "}
+        (reference opening bankroll) <strong>plus</strong> the sum of all rows in{" "}
+        <code className="rounded bg-zinc-100 px-1 font-mono text-xs">team_transactions</code>. Payouts and transfers
+        should always move both together; drift usually means a stuck write, a manual cash edit, or a budget change out of
+        sync.
+      </p>
+      <div className="mb-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => void scan()}
+          disabled={pending !== null}
+          className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-50 disabled:opacity-50"
+        >
+          {pending === "scan" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Scale className="h-4 w-4" />}
+          Scan for mismatches
+        </button>
+        <button
+          type="button"
+          onClick={() => void fix()}
+          disabled={pending !== null || !mismatches || mismatches.length === 0}
+          className="inline-flex items-center gap-2 rounded-lg border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+        >
+          {pending === "fix" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          Fix balances (set to expected)
+        </button>
+      </div>
+      {mismatches && mismatches.length > 0 ?
+        <div className="mb-3 overflow-x-auto rounded-lg border border-zinc-200">
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <thead className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              <tr>
+                <th className="px-3 py-2">Club</th>
+                <th className="px-3 py-2 text-right">Budget</th>
+                <th className="px-3 py-2 text-right">Σ transactions</th>
+                <th className="px-3 py-2 text-right">Expected</th>
+                <th className="px-3 py-2 text-right">Current</th>
+                <th className="px-3 py-2 text-right">Drift</th>
+              </tr>
+            </thead>
+            <tbody>
+              {mismatches.map((r) => (
+                <tr key={r.teamId} className="border-t border-zinc-100">
+                  <td className="px-3 py-2 font-medium text-zinc-900">{r.name}</td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums text-zinc-700">
+                    £{r.budget.toLocaleString()}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums text-zinc-700">
+                    £{r.sumTransactions.toLocaleString()}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono font-semibold tabular-nums text-emerald-800">
+                    £{r.expectedBalance.toLocaleString()}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums text-zinc-700">
+                    £{r.currentBalance.toLocaleString()}
+                  </td>
+                  <td
+                    className={`px-3 py-2 text-right font-mono font-semibold tabular-nums ${
+                      r.drift > 0 ? "text-emerald-700" : "text-red-700"
+                    }`}
+                  >
+                    {r.drift > 0 ? "+" : ""}£{r.drift.toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      : null}
+      {message && <p className="text-sm text-zinc-700">{message}</p>}
     </section>
   );
 }

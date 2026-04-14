@@ -22,6 +22,7 @@ import {
   UserPlus,
   Users,
   Wallet,
+  Wrench,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -274,6 +275,15 @@ export default function AdminPage() {
           <p className="mt-1 text-sm font-medium text-slate-600">
             Use the sections below — start with <strong>How it works</strong>, then{" "}
             <strong>World &amp; data</strong> and <strong>Season flow</strong>. Service role API.
+          </p>
+          <p className="mt-3">
+            <Link
+              href="/admin/saved-match-backfill"
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-amber-800 hover:underline"
+            >
+              <Wrench className="h-4 w-4" aria-hidden />
+              Saved match backfill (missing replay rows)
+            </Link>
           </p>
         </div>
       </header>

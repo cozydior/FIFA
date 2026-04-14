@@ -33,6 +33,7 @@ import { fotMobBadgeClass, marketTrendLabel } from "@/lib/fotMobBadge";
 import { priorSeasonLabel, priorSeasonMvForPlayerHistory } from "@/lib/mvSeasonTrend";
 import { compareSeasonLabelsDesc } from "@/lib/seasonLabelSort";
 import { CompetitionBrandLogo } from "@/components/CompetitionBrandLogo";
+import { RankNumberBubble, RANK_ROW_LABEL_CLASS } from "@/components/RankNumberBubble";
 import { formatInternationalCompetitionLabel } from "@/lib/intlCompetitionLabels";
 
 export const revalidate = 60;
@@ -262,15 +263,19 @@ export default async function PlayerPage({
 
   let mvRankCountry: number | null = null;
   let mvRankGlobalRole: number | null = null;
+  let mvRankCountryTotal = 0;
+  let mvRankGlobalTotal = 0;
   if (roleForMvRank && (mvRankRows?.length ?? 0) > 0) {
     const sameRole = (mvRankRows ?? []).filter((r) => r.role === player.role);
     if (sameRole.length > 0) {
+      mvRankGlobalTotal = sameRole.length;
       mvRankGlobalRole =
         sameRole.filter((r) => Number(r.market_value ?? 0) > liveMv).length + 1;
     }
     if (player.nationality && sameRole.length > 0) {
       const natCohort = sameRole.filter((r) => r.nationality === player.nationality);
       if (natCohort.length > 0) {
+        mvRankCountryTotal = natCohort.length;
         mvRankCountry =
           natCohort.filter((r) => Number(r.market_value ?? 0) > liveMv).length + 1;
       }
@@ -547,17 +552,17 @@ export default async function PlayerPage({
                 </span>
               </p>
               {mvRankCountry != null || mvRankGlobalRole != null ?
-                <ul className="mt-2 space-y-0.5 font-mono text-[0.65rem] font-semibold tabular-nums text-slate-500">
+                <ul className="mt-2.5 space-y-1.5">
                   {mvRankCountry != null ?
-                    <li>
-                      <span className="text-slate-400">Country</span>{" "}
-                      <span className="text-slate-700">#{mvRankCountry}</span>
+                    <li className="flex flex-wrap items-center gap-2">
+                      <span className={RANK_ROW_LABEL_CLASS}>Country</span>
+                      <RankNumberBubble rank={mvRankCountry} total={mvRankCountryTotal} />
                     </li>
                   : null}
                   {mvRankGlobalRole != null ?
-                    <li>
-                      <span className="text-slate-400">Global ({player.role})</span>{" "}
-                      <span className="text-slate-700">#{mvRankGlobalRole}</span>
+                    <li className="flex flex-wrap items-center gap-2">
+                      <span className={RANK_ROW_LABEL_CLASS}>Global</span>
+                      <RankNumberBubble rank={mvRankGlobalRole} total={mvRankGlobalTotal} />
                     </li>
                   : null}
                 </ul>

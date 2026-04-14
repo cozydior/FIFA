@@ -85,6 +85,8 @@ export async function fetchRankingsRows(opts: {
   countryFilter: string;
   leagueIdFilter: string;
   freeAgentsOnly: boolean;
+  /** When false and not `freeAgentsOnly`, players without a club are omitted from the list. */
+  includeFreeAgents: boolean;
   sortKey: RankingsSortKey;
   /** Default `desc` = highest first (then name). */
   sortDir?: RankingsSortDir;
@@ -168,6 +170,7 @@ export async function fetchRankingsRows(opts: {
   for (const p of players ?? []) {
     if (opts.roleFilter !== "all" && p.role !== opts.roleFilter) continue;
     if (opts.freeAgentsOnly && p.team_id) continue;
+    if (!opts.freeAgentsOnly && !opts.includeFreeAgents && !p.team_id) continue;
 
     const rawTeam = p.teams as
       | {

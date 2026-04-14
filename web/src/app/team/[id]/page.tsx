@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { RankNumberBubble, RANK_ROW_LABEL_CLASS } from "@/components/RankNumberBubble";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import {
   computeStandings,
@@ -548,6 +549,12 @@ export default async function TeamPage({
   const squadRankLeague = team.league_id ? squadRankAmong(leaguePeerIds) : null;
   const squadRankCountry = squadRankAmong(countryPeerIds);
   const squadRankGlobal = squadRankAmong(globalPeerIds);
+  function squadPeerCount(teamIds: string[]): number {
+    return [...new Set(teamIds)].filter((tid) => squadMvByTeam.has(tid)).length;
+  }
+  const squadRankLeagueTotal = team.league_id ? squadPeerCount(leaguePeerIds) : 0;
+  const squadRankCountryTotal = squadPeerCount(countryPeerIds);
+  const squadRankGlobalTotal = squadPeerCount(globalPeerIds);
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f1f5f9_0%,#f8fafc_12rem,#f1f5f9_100%)]">
@@ -629,23 +636,23 @@ export default async function TeamPage({
               <div className="min-w-0 sm:pr-4">
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Squad value</p>
                 <p className="mt-1 text-xl font-black text-slate-900">{formatMoneyPounds(totalSquadValue)}</p>
-                <ul className="mt-2 space-y-0.5 font-mono text-[0.65rem] font-semibold tabular-nums text-slate-500">
+                <ul className="mt-2.5 space-y-1.5">
                   {squadRankLeague != null ?
-                    <li>
-                      <span className="text-slate-400">League</span>{" "}
-                      <span className="text-slate-700">#{squadRankLeague}</span>
+                    <li className="flex flex-wrap items-center gap-2">
+                      <span className={RANK_ROW_LABEL_CLASS}>League</span>
+                      <RankNumberBubble rank={squadRankLeague} total={squadRankLeagueTotal} />
                     </li>
                   : null}
                   {squadRankCountry != null ?
-                    <li>
-                      <span className="text-slate-400">Country</span>{" "}
-                      <span className="text-slate-700">#{squadRankCountry}</span>
+                    <li className="flex flex-wrap items-center gap-2">
+                      <span className={RANK_ROW_LABEL_CLASS}>Country</span>
+                      <RankNumberBubble rank={squadRankCountry} total={squadRankCountryTotal} />
                     </li>
                   : null}
                   {squadRankGlobal != null ?
-                    <li>
-                      <span className="text-slate-400">Global</span>{" "}
-                      <span className="text-slate-700">#{squadRankGlobal}</span>
+                    <li className="flex flex-wrap items-center gap-2">
+                      <span className={RANK_ROW_LABEL_CLASS}>Global</span>
+                      <RankNumberBubble rank={squadRankGlobal} total={squadRankGlobalTotal} />
                     </li>
                   : null}
                 </ul>

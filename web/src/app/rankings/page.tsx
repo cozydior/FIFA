@@ -104,7 +104,29 @@ export default async function RankingsPage({
   const leagueId =
     typeof sp.league === "string" && sp.league.trim() ? sp.league.trim() : "";
   const freeAgentsOnly = sp.free === "1";
+  const includeFreeAgents =
+    typeof sp.include_free === "string" && sp.include_free === "1";
   const tab = parseTab(typeof sp.tab === "string" ? sp.tab : undefined);
+
+  function playersFiltersParams(): URLSearchParams {
+    const p = new URLSearchParams();
+    p.set("role", role);
+    p.set("scope", scope);
+    p.set("sort", sort);
+    if (sortDir === "asc") p.set("order", "asc");
+    if (country) p.set("country", country);
+    if (leagueId) p.set("league", leagueId);
+    if (freeAgentsOnly) p.set("free", "1");
+    if (includeFreeAgents) p.set("include_free", "1");
+    return p;
+  }
+
+  function rosterViewHref(showFree: boolean): string {
+    const p = playersFiltersParams();
+    if (showFree) p.set("include_free", "1");
+    else p.delete("include_free");
+    return `/rankings?${p.toString()}`;
+  }
 
   const supabase = getSupabaseAdmin();
   const [{ data: leagues }, { data: countries }] = await Promise.all([
@@ -125,6 +147,7 @@ export default async function RankingsPage({
         countryFilter: country,
         leagueIdFilter: leagueId,
         freeAgentsOnly,
+        includeFreeAgents,
         sortKey: sort,
         sortDir,
       });
@@ -137,33 +160,20 @@ export default async function RankingsPage({
   }
 
   function rankingsHref(next: { tab?: "players" | "teams" }): string {
-    const p = new URLSearchParams();
     if (next.tab === "teams") {
-      p.set("tab", "teams");
-    } else {
-      p.set("role", role);
-      p.set("scope", scope);
-      p.set("sort", sort);
-      if (sortDir === "asc") p.set("order", "asc");
-      if (country) p.set("country", country);
-      if (leagueId) p.set("league", leagueId);
-      if (freeAgentsOnly) p.set("free", "1");
+      return "/rankings?tab=teams";
     }
-    const q = p.toString();
+    const q = playersFiltersParams().toString();
     return q ? `/rankings?${q}` : "/rankings";
   }
 
   function playersSortHref(nextSort: RankingsSortKey): string {
-    const p = new URLSearchParams();
-    p.set("role", role);
-    p.set("scope", scope);
+    const p = playersFiltersParams();
     const nextOrder: RankingsSortDir =
       nextSort === sort ? (sortDir === "desc" ? "asc" : "desc") : "desc";
     p.set("sort", nextSort);
     if (nextOrder === "asc") p.set("order", "asc");
-    if (country) p.set("country", country);
-    if (leagueId) p.set("league", leagueId);
-    if (freeAgentsOnly) p.set("free", "1");
+    else p.delete("order");
     return `/rankings?${p.toString()}`;
   }
 
@@ -211,7 +221,10 @@ export default async function RankingsPage({
               </h1>
               <p className="mt-2 max-w-2xl text-sm text-slate-600">
                 Ballon d&apos;Or race (ST) and Palm d&apos;Or race (GK): sort by value, form stats,
-                international legacy, or FotMob average. Filters help you scout free agents and
+                international legacy, or FotMob average.                 Free agents are hidden from the table by default; use{" "}
+                <strong className="font-semibold text-slate-800">+ Free agents</strong> or the
+                filter checkbox to show them. Filters also help you scout{" "}
+                <strong className="font-semibold text-slate-800">free agents only</strong> and
                 league pipelines.
               </p>
             </div>
@@ -352,6 +365,25 @@ export default async function RankingsPage({
             <input type="checkbox" name="free" value="1" defaultChecked={freeAgentsOnly} />
             Free agents only
           </label>
+          <label
+            className={`flex items-center gap-2 text-sm font-semibold ${
+              freeAgentsOnly ? "cursor-not-allowed text-slate-400" : "text-slate-700"
+            }`}
+            title={
+              freeAgentsOnly ?
+                "Turn off “Free agents only” to change this"
+              : "List players without a club (off by default)"
+            }
+          >
+            <input
+              type="checkbox"
+              name="include_free"
+              value="1"
+              defaultChecked={includeFreeAgents}
+              disabled={freeAgentsOnly}
+            />
+            Show free agents
+          </label>
           <button
             type="submit"
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white shadow-sm"
@@ -364,6 +396,35 @@ export default async function RankingsPage({
         )}
       </form>
       : null}
+
+      {tab === "players" && seasonLabel && !freeAgentsOnly && (
+        <p className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600">
+          <span className="font-bold uppercase tracking-wide text-slate-500">Roster</span>
+          <Link
+            href={rosterViewHref(false)}
+            className={
+              !includeFreeAgents ?
+                "rounded-md bg-slate-900 px-2 py-1 font-semibold text-white"
+              : "rounded-md px-2 py-1 font-semibold text-emerald-800 hover:bg-emerald-50 hover:underline"
+            }
+          >
+            Club players
+            {!includeFreeAgents ?
+              <span className="ml-0.5 text-[0.65rem] font-normal opacity-80">(default)</span>
+            : null}
+          </Link>
+          <Link
+            href={rosterViewHref(true)}
+            className={
+              includeFreeAgents ?
+                "rounded-md bg-slate-900 px-2 py-1 font-semibold text-white"
+              : "rounded-md px-2 py-1 font-semibold text-emerald-800 hover:bg-emerald-50 hover:underline"
+            }
+          >
+            + Free agents
+          </Link>
+        </p>
+      )}
 
       {tab === "players" && seasonLabel && (
         <p className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600">
@@ -725,6 +786,14 @@ export default async function RankingsPage({
             International tournaments use the international stats ledger (caps/goals/saves). The main stat column for
             <strong className="font-semibold text-slate-800"> Full career</strong> adds international goals and saves to
             domestic totals.
+          </li>
+          <li>
+            <strong className="font-semibold text-slate-800">Club players</strong> (default) hides
+            players without a club from the rankings table.{" "}
+            <strong className="font-semibold text-slate-800">+ Free agents</strong> or{" "}
+            <strong className="font-semibold text-slate-800">Show free agents</strong> in Apply
+            filters includes them. <strong className="font-semibold text-slate-800">Free agents only</strong>{" "}
+            narrows the list to unattached players.
           </li>
         </ul>
       </section>

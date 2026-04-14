@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { countryCodeToFlagEmoji } from "@/lib/flags";
 import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { RankNumberBubble, RANK_ROW_LABEL_CLASS } from "@/components/RankNumberBubble";
 import {
   Check,
   ChevronDown,
@@ -380,6 +381,10 @@ export default async function CountryPage({
   let poolRankGlobal: number | null = null;
   let callupRankConf: number | null = null;
   let callupRankGlobal: number | null = null;
+  let poolRankConfTotal = 0;
+  let poolRankGlobalTotal = 0;
+  let callupRankConfTotal = 0;
+  let callupRankGlobalTotal = 0;
 
   if (season.trim() && nt) {
     const { data: ntAll } = await supabase
@@ -430,11 +435,13 @@ export default async function CountryPage({
           (n) => (poolByName.get(n) ?? 0) > totalPoolValue,
         ).length;
         poolRankConf = strictlyGreaterConf + 1;
+        poolRankConfTotal = poolPeerNames.length;
       }
       const strictlyGreaterGlobal = countryNames.filter(
         (n) => (poolByName.get(n) ?? 0) > totalPoolValue,
       ).length;
       poolRankGlobal = strictlyGreaterGlobal + 1;
+      poolRankGlobalTotal = countryNames.length;
     }
 
     if (ntIds.length > 0) {
@@ -457,11 +464,13 @@ export default async function CountryPage({
           (tid) => (callupMvByNt.get(tid) ?? 0) > calledUpValue,
         ).length;
         callupRankConf = strictlyGreaterConfCu + 1;
+        callupRankConfTotal = confPeerNtIds.length;
       }
       const strictlyGreaterCu = ntIds.filter(
         (tid) => (callupMvByNt.get(tid) ?? 0) > calledUpValue,
       ).length;
       callupRankGlobal = strictlyGreaterCu + 1;
+      callupRankGlobalTotal = ntIds.length;
     }
   }
 
@@ -522,17 +531,17 @@ export default async function CountryPage({
                       <p className="text-xs font-bold uppercase tracking-wider text-slate-500">All nationals MV</p>
                       <p className="mt-1 text-xl font-black text-slate-900">{formatMoneyPounds(totalPoolValue)}</p>
                       {(poolRankConf != null || poolRankGlobal != null) && (
-                        <ul className="mt-2 space-y-0.5 font-mono text-[0.65rem] font-semibold tabular-nums text-slate-500">
+                        <ul className="mt-2.5 space-y-1.5">
                           {poolRankConf != null ?
-                            <li>
-                              <span className="text-slate-400">{nt.confederation}</span>{" "}
-                              <span className="text-slate-700">#{poolRankConf}</span>
+                            <li className="flex flex-wrap items-center gap-2">
+                              <span className={RANK_ROW_LABEL_CLASS}>{nt.confederation}</span>
+                              <RankNumberBubble rank={poolRankConf} total={poolRankConfTotal} />
                             </li>
                           : null}
                           {poolRankGlobal != null ?
-                            <li>
-                              <span className="text-slate-400">Global</span>{" "}
-                              <span className="text-slate-700">#{poolRankGlobal}</span>
+                            <li className="flex flex-wrap items-center gap-2">
+                              <span className={RANK_ROW_LABEL_CLASS}>Global</span>
+                              <RankNumberBubble rank={poolRankGlobal} total={poolRankGlobalTotal} />
                             </li>
                           : null}
                         </ul>
@@ -542,17 +551,17 @@ export default async function CountryPage({
                       <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Called-up squad MV</p>
                       <p className="mt-1 text-xl font-black text-slate-900">{formatMoneyPounds(calledUpValue)}</p>
                       {(callupRankConf != null || callupRankGlobal != null) && (
-                        <ul className="mt-2 space-y-0.5 font-mono text-[0.65rem] font-semibold tabular-nums text-slate-500">
+                        <ul className="mt-2.5 space-y-1.5">
                           {callupRankConf != null ?
-                            <li>
-                              <span className="text-slate-400">{nt.confederation}</span>{" "}
-                              <span className="text-slate-700">#{callupRankConf}</span>
+                            <li className="flex flex-wrap items-center gap-2">
+                              <span className={RANK_ROW_LABEL_CLASS}>{nt.confederation}</span>
+                              <RankNumberBubble rank={callupRankConf} total={callupRankConfTotal} />
                             </li>
                           : null}
                           {callupRankGlobal != null ?
-                            <li>
-                              <span className="text-slate-400">Global</span>{" "}
-                              <span className="text-slate-700">#{callupRankGlobal}</span>
+                            <li className="flex flex-wrap items-center gap-2">
+                              <span className={RANK_ROW_LABEL_CLASS}>Global</span>
+                              <RankNumberBubble rank={callupRankGlobal} total={callupRankGlobalTotal} />
                             </li>
                           : null}
                         </ul>
@@ -564,17 +573,17 @@ export default async function CountryPage({
                     <p className="text-xs font-bold uppercase tracking-wider text-slate-500">All nationals MV</p>
                     <p className="mt-1 text-xl font-black text-slate-900">{formatMoneyPounds(totalPoolValue)}</p>
                     {(poolRankConf != null || poolRankGlobal != null) && (
-                      <ul className="mt-2 space-y-0.5 font-mono text-[0.65rem] font-semibold tabular-nums text-slate-500">
+                      <ul className="mt-2.5 space-y-1.5">
                         {poolRankConf != null ?
-                          <li>
-                            <span className="text-slate-400">{nt.confederation}</span>{" "}
-                            <span className="text-slate-700">#{poolRankConf}</span>
+                          <li className="flex flex-wrap items-center gap-2">
+                            <span className={RANK_ROW_LABEL_CLASS}>{nt.confederation}</span>
+                            <RankNumberBubble rank={poolRankConf} total={poolRankConfTotal} />
                           </li>
                         : null}
                         {poolRankGlobal != null ?
-                          <li>
-                            <span className="text-slate-400">Global</span>{" "}
-                            <span className="text-slate-700">#{poolRankGlobal}</span>
+                          <li className="flex flex-wrap items-center gap-2">
+                            <span className={RANK_ROW_LABEL_CLASS}>Global</span>
+                            <RankNumberBubble rank={poolRankGlobal} total={poolRankGlobalTotal} />
                           </li>
                         : null}
                       </ul>

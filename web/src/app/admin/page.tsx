@@ -410,6 +410,7 @@ export default function AdminPage() {
           <>
             <SeasonMakerSection />
             <EndOfSeasonChecklistSection />
+            <SyncMvHistoryForSeasonSection seasons={seasons} />
             <SimPreviewToggleSection />
             <TournamentsModeToggleSection />
             <InternationalTournamentAdminSection />
@@ -432,9 +433,9 @@ export default function AdminPage() {
 
         {panel === "finance" && (
           <>
+            <SyncMvHistoryForSeasonSection seasons={seasons} />
             <TransferMarketSection teams={teams} onSuccess={refreshLists} />
             <ResetPeakMarketValueSection onSuccess={refreshLists} />
-            <SyncMvHistoryForSeasonSection seasons={seasons} />
             <BackfillStatsTeamIdSection />
             <ReleasePlayerSection players={players} onSuccess={refreshLists} />
             <FreeAgencyPickupSection players={players} teams={teams} onSuccess={refreshLists} />
@@ -2066,10 +2067,10 @@ function SyncMvHistoryForSeasonSection({
   }
 
   return (
-    <section className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-4 shadow-sm">
+    <section className="rounded-xl border border-emerald-200/90 bg-emerald-50/50 p-4 shadow-sm ring-1 ring-emerald-500/10">
       <div className="mb-2 flex items-center gap-2 text-zinc-900">
-        <History className="h-4 w-4 text-zinc-600" aria-hidden />
-        <h3 className="text-sm font-semibold">MV history (graph / trends)</h3>
+        <History className="h-4 w-4 text-emerald-700" aria-hidden />
+        <h3 className="text-sm font-semibold text-emerald-950">Fix MV graph and prior-season trend</h3>
       </div>
       <p className="mb-3 text-xs text-zinc-600">
         Writes every player&apos;s <strong>current</strong> <code className="rounded bg-white px-1 font-mono text-[0.65rem]">market_value</code> into{" "}

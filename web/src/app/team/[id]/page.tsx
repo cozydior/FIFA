@@ -322,6 +322,8 @@ export default async function TeamPage({
     savedMatchRows,
     savedSimFixtureById,
   );
+  /** Newest fixture first for the browse list; form strip still uses chronological asc. */
+  const savedMatchRowsNewestFirst = [...savedMatchRowsChronological].reverse();
 
   const upTeamIds = [
     ...new Set((upcomingFx ?? []).flatMap((f) => [f.home_team_id, f.away_team_id])),
@@ -776,25 +778,25 @@ export default async function TeamPage({
         </div>
       </section>
 
-      {(savedMatchRowsChronological ?? []).length > 0 && (
+      {(savedMatchRowsNewestFirst ?? []).length > 0 && (
         <section className="mt-10">
           <h2 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-500">
             Saved match sims
           </h2>
           <p className="mb-3 text-sm text-slate-600">
             Open a frozen report (score, shot feed, ratings) from games you finished in Match center.
-            Ordered by schedule (week), not when the replay was saved.
+            Newest games first; order follows the schedule (week), not when the replay was saved.
           </p>
           <details className="group rounded-xl border border-slate-200 bg-white shadow-sm open:shadow-md">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
               <span>
-                Browse {savedMatchRowsChronological.length} saved match
-                {savedMatchRowsChronological.length === 1 ? "" : "es"}
+                Browse {savedMatchRowsNewestFirst.length} saved match
+                {savedMatchRowsNewestFirst.length === 1 ? "" : "es"}
               </span>
               <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
             </summary>
             <ul className="border-t border-slate-100">
-              {savedMatchRowsChronological.map((m) => {
+              {savedMatchRowsNewestFirst.map((m) => {
                 const isHome = m.home_team_id === id;
                 const oppId = isHome ? m.away_team_id : m.home_team_id;
                 const opp = oppById.get(oppId);

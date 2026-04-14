@@ -921,6 +921,7 @@ export default async function CountryPage({
                     | null;
                   if (!pl) return null;
                   const club = Array.isArray(pl.teams) ? pl.teams[0] : pl.teams;
+                  const careerCallups = careerCallupCountByPlayer.get(pl.id) ?? 0;
                   return (
                     <li
                       key={row.slot}
@@ -935,6 +936,14 @@ export default async function CountryPage({
                       >
                         <PlayerAvatar name={pl.name} profilePicUrl={pl.profile_pic_url} />
                         <span className="truncate">{pl.name}</span>
+                        {careerCallups > 0 ?
+                          <span
+                            className="inline-flex min-w-[1.2rem] shrink-0 items-center justify-center rounded-md bg-slate-200/90 px-1.5 py-0.5 text-[0.68rem] font-bold tabular-nums leading-none text-slate-700 ring-1 ring-slate-300/80"
+                            title="National team call-ups (all seasons)"
+                          >
+                            {careerCallups}
+                          </span>
+                        : null}
                       </Link>
                       <span className="shrink-0 text-xs text-slate-500">{pl.role}</span>
                       <div className="flex w-full basis-full flex-wrap items-center gap-2 pl-12 text-xs text-slate-600 sm:w-auto sm:basis-auto sm:pl-0">

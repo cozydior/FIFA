@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
+import { priorSeasonMvByPlayer } from "@/lib/mvSeasonTrend";
 
 export type RankingsRoleFilter = "ST" | "GK" | "all";
 export type RankingsStatScope =
@@ -10,9 +11,12 @@ export type RankingsStatScope =
   | "gold_cup"
   | "champions_league_proxy";
 
+export type RankingsSortDir = "asc" | "desc";
+
 export type RankingsSortKey =
   | "market_value"
   | "peak_market_value"
+  | "mv_trend"
   | "career_goals"
   | "career_saves"
   | "season_goals"
@@ -24,6 +28,14 @@ export type RankingsSortKey =
   | "intl_goals"
   | "intl_saves";
 
+/** % change vs prior season MV from history; unknown sorts last when descending. */
+export function mvTrendSortValue(row: RankingsRow): number {
+  const prev = row.mv_prior_season;
+  const cur = row.market_value;
+  if (prev == null || prev <= 0) return Number.NEGATIVE_INFINITY;
+  return (cur - prev) / prev;
+}
+
 export type RankingsRow = {
   id: string;
   name: string;
@@ -34,7 +46,8 @@ export type RankingsRow = {
   nationality_code: string | null;
   market_value: number;
   peak_market_value: number;
-  market_value_previous: number | null;
+  /** MV from `player_market_value_history` for the season before the rankings season. */
+  mv_prior_season: number | null;
   team_id: string | null;
   team_name: string | null;
   team_logo_url: string | null;
@@ -73,6 +86,8 @@ export async function fetchRankingsRows(opts: {
   leagueIdFilter: string;
   freeAgentsOnly: boolean;
   sortKey: RankingsSortKey;
+  /** Default `desc` = highest first (then name). */
+  sortDir?: RankingsSortDir;
 }): Promise<RankingsRow[]> {
   const supabase = getSupabaseAdmin();
 
@@ -81,7 +96,7 @@ export async function fetchRankingsRows(opts: {
       supabase
         .from("players")
         .select(
-          "id, name, role, nationality, profile_pic_url, market_value, peak_market_value, market_value_previous, team_id, teams(id, name, logo_url, league_id, leagues(name, country))",
+          "id, name, role, nationality, profile_pic_url, market_value, peak_market_value, team_id, teams(id, name, logo_url, league_id, leagues(name, country))",
         ),
       supabase.from("stats").select("player_id, season, goals, saves, appearances, average_rating"),
       supabase
@@ -89,6 +104,24 @@ export async function fetchRankingsRows(opts: {
         .select("player_id, season_label, competition_slug, caps, goals_for_country, saves_for_country"),
       supabase.from("countries").select("name, flag_emoji, code"),
     ]);
+
+  const playerIds = (players ?? []).map((p) => p.id as string);
+  const { data: mvHist } =
+    playerIds.length > 0 ?
+      await supabase
+        .from("player_market_value_history")
+        .select("player_id, season_label, market_value")
+        .in("player_id", playerIds)
+    : { data: [] as { player_id: string; season_label: string; market_value: number }[] };
+
+  const priorMvMap = priorSeasonMvByPlayer(
+    (mvHist ?? []).map((r) => ({
+      player_id: r.player_id as string,
+      season_label: r.season_label as string,
+      market_value: Number(r.market_value),
+    })),
+    opts.seasonLabel,
+  );
 
   const flagByNationality = new Map(
     (countryRows ?? []).map((c) => [c.name, (c.flag_emoji as string | null) ?? null]),
@@ -247,8 +280,7 @@ export async function fetchRankingsRows(opts: {
       nationality_code: nat ? codeByNationality.get(nat) ?? null : null,
       market_value: Number(p.market_value ?? 0),
       peak_market_value: Number(p.peak_market_value ?? 0),
-      market_value_previous:
-        p.market_value_previous == null ? null : Number(p.market_value_previous),
+      mv_prior_season: priorMvMap.get(p.id as string) ?? null,
       team_id: p.team_id,
       team_name:
         team && typeof team === "object" && team !== null && "name" in team
@@ -272,7 +304,7 @@ export async function fetchRankingsRows(opts: {
   }
 
   const key = opts.sortKey;
-  const dir = 1;
+  const dir = opts.sortDir === "asc" ? -1 : 1;
   rows.sort((a, b) => {
     let va = 0;
     let vb = 0;
@@ -284,6 +316,10 @@ export async function fetchRankingsRows(opts: {
       case "peak_market_value":
         va = a.peak_market_value;
         vb = b.peak_market_value;
+        break;
+      case "mv_trend":
+        va = mvTrendSortValue(a);
+        vb = mvTrendSortValue(b);
         break;
       case "career_goals":
         va = a.career_goals;

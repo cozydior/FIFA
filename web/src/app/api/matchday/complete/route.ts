@@ -214,22 +214,14 @@ export async function POST(req: Request) {
         if (pk) throw new Error(pk.message);
       }
 
-      const { error: he } = await supabase.from("player_market_value_history").upsert(
-        {
-          player_id: p.id,
-          season_label: season,
-          market_value: mv,
-        },
-        { onConflict: "player_id,season_label" },
-      );
-      if (he) throw new Error(he.message);
-
       // Domestic form-driven MV progression (last-5 proxy from current performance).
       const perfWeight = p.goals ? p.goals * 0.05 : p.saves ? p.saves * 0.02 : 0;
       const ratingWeight = ((typeof p.fotMob === "number" ? p.fotMob : 6) - 6) * 0.012;
       const delta = (perfWeight + ratingWeight) * mv;
+      let finalMv = mv;
       if (delta !== 0) {
         const nextMv = Math.max(0, Math.round(mv + delta));
+        finalMv = nextMv;
         const { error: me } = await supabase
           .from("players")
           .update({
@@ -240,6 +232,16 @@ export async function POST(req: Request) {
           .eq("id", p.id);
         if (me) throw new Error(me.message);
       }
+
+      const { error: he } = await supabase.from("player_market_value_history").upsert(
+        {
+          player_id: p.id,
+          season_label: season,
+          market_value: finalMv,
+        },
+        { onConflict: "player_id,season_label" },
+      );
+      if (he) throw new Error(he.message);
     }
 
     await applyClubMatchStatsUpsert(supabase, season, players);

@@ -29,7 +29,8 @@ import {
 } from "@/lib/playerTransfers";
 import { parsePlayerNameFromTransferNote } from "@/lib/transferNotes";
 import { formatMoneyPounds } from "@/lib/formatMoney";
-import { fotMobBadgeClass } from "@/lib/fotMobBadge";
+import { fotMobBadgeClass, marketTrendLabel } from "@/lib/fotMobBadge";
+import { priorSeasonLabel, priorSeasonMvForPlayerHistory } from "@/lib/mvSeasonTrend";
 import { compareSeasonLabelsDesc } from "@/lib/seasonLabelSort";
 import { CompetitionBrandLogo } from "@/components/CompetitionBrandLogo";
 import { formatInternationalCompetitionLabel } from "@/lib/intlCompetitionLabels";
@@ -247,13 +248,66 @@ export default async function PlayerPage({
   const hasHonoursSection =
     personalHonours.length + intlHonours.length + clubHonours.length > 0;
 
-  const chartData =
-    history?.map((h) => ({
-      season: h.season_label,
-      mv: Number(h.market_value),
-    })) ?? [];
-
   const currentSeason = await getCurrentSeasonLabel();
+  const liveMv = Number(player.market_value ?? 0);
+
+  const roleForMvRank = player.role === "ST" || player.role === "GK";
+  const { data: mvRankRows } =
+    roleForMvRank ?
+      await supabase
+        .from("players")
+        .select("nationality, role, market_value")
+        .in("role", ["ST", "GK"])
+    : { data: [] as { nationality: string | null; role: string | null; market_value: number | null }[] };
+
+  let mvRankCountry: number | null = null;
+  let mvRankGlobalRole: number | null = null;
+  if (roleForMvRank && (mvRankRows?.length ?? 0) > 0) {
+    const sameRole = (mvRankRows ?? []).filter((r) => r.role === player.role);
+    if (sameRole.length > 0) {
+      mvRankGlobalRole =
+        sameRole.filter((r) => Number(r.market_value ?? 0) > liveMv).length + 1;
+    }
+    if (player.nationality && sameRole.length > 0) {
+      const natCohort = sameRole.filter((r) => r.nationality === player.nationality);
+      if (natCohort.length > 0) {
+        mvRankCountry =
+          natCohort.filter((r) => Number(r.market_value ?? 0) > liveMv).length + 1;
+      }
+    }
+  }
+
+  const chartData = (() => {
+    const pts =
+      history?.map((h) => ({
+        season: h.season_label,
+        mv: Number(h.market_value),
+      })) ?? [];
+    if (!currentSeason) return pts;
+    const i = pts.findIndex((p) => p.season === currentSeason);
+    if (i >= 0) {
+      const next = [...pts];
+      next[i] = { season: currentSeason, mv: liveMv };
+      return next;
+    }
+    return [...pts, { season: currentSeason, mv: liveMv }];
+  })();
+
+  const priorSeasonName =
+    currentSeason ?
+      priorSeasonLabel(
+        currentSeason,
+        (history ?? []).map((h) => h.season_label as string),
+      )
+    : null;
+  const priorSeasonStoredMv = priorSeasonMvForPlayerHistory(
+    (history ?? []).map((h) => ({
+      season_label: h.season_label as string,
+      market_value: Number(h.market_value),
+    })),
+    currentSeason,
+  );
+  const mvYearOverYearTrend = marketTrendLabel(priorSeasonStoredMv, liveMv);
   const leagueDashboardUrl =
     currentSeason && leagueCountryName ?
       dashboardDomesticLeagueUrl(currentSeason, leagueCountryName)
@@ -476,6 +530,38 @@ export default async function PlayerPage({
               <p className="mt-1 font-mono text-xl font-bold text-slate-900 sm:text-2xl">
                 {formatMoneyPounds(Number(player.market_value))}
               </p>
+              <p className="mt-1.5 text-xs font-semibold leading-snug text-slate-600">
+                <span className="text-slate-500">vs prior season</span>
+                {priorSeasonName ?
+                  <span className="ml-1 font-mono text-[0.7rem] text-slate-400">({priorSeasonName})</span>
+                : null}
+                <span
+                  className={
+                    mvYearOverYearTrend === "—" ? "ml-1 text-slate-400"
+                    : mvYearOverYearTrend.startsWith("↑") ? "ml-1 text-emerald-700"
+                    : mvYearOverYearTrend.startsWith("↓") ? "ml-1 text-red-600"
+                    : "ml-1 text-slate-600"
+                  }
+                >
+                  {mvYearOverYearTrend}
+                </span>
+              </p>
+              {mvRankCountry != null || mvRankGlobalRole != null ?
+                <ul className="mt-2 space-y-0.5 font-mono text-[0.65rem] font-semibold tabular-nums text-slate-500">
+                  {mvRankCountry != null ?
+                    <li>
+                      <span className="text-slate-400">Country</span>{" "}
+                      <span className="text-slate-700">#{mvRankCountry}</span>
+                    </li>
+                  : null}
+                  {mvRankGlobalRole != null ?
+                    <li>
+                      <span className="text-slate-400">Global ({player.role})</span>{" "}
+                      <span className="text-slate-700">#{mvRankGlobalRole}</span>
+                    </li>
+                  : null}
+                </ul>
+              : null}
             </div>
             <div className="bg-white px-4 py-4 text-center sm:px-6 sm:text-left">
               <p className="text-[0.65rem] font-bold uppercase tracking-wider text-slate-500">

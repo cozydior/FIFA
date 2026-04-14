@@ -6,6 +6,7 @@ import {
   resolveRankingsSeason,
   type RankingsRoleFilter,
   type RankingsRow,
+  type RankingsSortDir,
   type RankingsSortKey,
   type RankingsStatScope,
 } from "@/lib/rankingsData";
@@ -45,6 +46,7 @@ function parseSort(v: string | undefined, role: RankingsRoleFilter): RankingsSor
   const keys: RankingsSortKey[] = [
     "market_value",
     "peak_market_value",
+    "mv_trend",
     "career_goals",
     "career_saves",
     "season_goals",
@@ -62,19 +64,41 @@ function parseSort(v: string | undefined, role: RankingsRoleFilter): RankingsSor
   return "market_value";
 }
 
+function parseSortDir(v: string | undefined): RankingsSortDir {
+  return v === "asc" ? "asc" : "desc";
+}
+
+function statColumnSortKey(
+  role: RankingsRoleFilter,
+  scope: RankingsStatScope,
+): RankingsSortKey {
+  if (scope === "career") {
+    return role === "GK" ? "career_saves" : "career_goals";
+  }
+  if (scope === "season") {
+    return role === "GK" ? "season_saves" : "season_goals";
+  }
+  return role === "GK" ? "scope_saves" : "scope_goals";
+}
+
+function sortThClass(active: boolean): string {
+  return [
+    "inline-flex items-center gap-0.5 rounded px-0.5 py-0.5 font-semibold text-slate-700 no-underline transition-colors hover:bg-slate-200/80 hover:text-slate-900",
+    active ? "bg-slate-200/90 text-slate-900 ring-1 ring-slate-300/80" : "",
+  ].join(" ");
+}
+
 export default async function RankingsPage({
   searchParams,
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = (await searchParams) ?? {};
-  const season =
-    typeof sp.season === "string" && sp.season.trim()
-      ? sp.season.trim()
-      : await resolveRankingsSeason(null);
+  const season = await resolveRankingsSeason(null);
   const role = parseRole(typeof sp.role === "string" ? sp.role : undefined);
   const scope = parseScope(typeof sp.scope === "string" ? sp.scope : undefined);
   const sort = parseSort(typeof sp.sort === "string" ? sp.sort : undefined, role);
+  const sortDir = parseSortDir(typeof sp.order === "string" ? sp.order : undefined);
   const country =
     typeof sp.country === "string" && sp.country.trim() ? sp.country.trim() : "";
   const leagueId =
@@ -83,8 +107,7 @@ export default async function RankingsPage({
   const tab = parseTab(typeof sp.tab === "string" ? sp.tab : undefined);
 
   const supabase = getSupabaseAdmin();
-  const [{ data: seasons }, { data: leagues }, { data: countries }] = await Promise.all([
-    supabase.from("seasons").select("label").order("created_at", { ascending: false }),
+  const [{ data: leagues }, { data: countries }] = await Promise.all([
     supabase.from("leagues").select("id, name, country, division").order("country"),
     supabase.from("countries").select("name").order("name"),
   ]);
@@ -103,6 +126,7 @@ export default async function RankingsPage({
         leagueIdFilter: leagueId,
         freeAgentsOnly,
         sortKey: sort,
+        sortDir,
       });
     }
     if (tab === "teams") {
@@ -114,19 +138,33 @@ export default async function RankingsPage({
 
   function rankingsHref(next: { tab?: "players" | "teams" }): string {
     const p = new URLSearchParams();
-    if (seasonLabel) p.set("season", seasonLabel);
     if (next.tab === "teams") {
       p.set("tab", "teams");
     } else {
       p.set("role", role);
       p.set("scope", scope);
       p.set("sort", sort);
+      if (sortDir === "asc") p.set("order", "asc");
       if (country) p.set("country", country);
       if (leagueId) p.set("league", leagueId);
       if (freeAgentsOnly) p.set("free", "1");
     }
     const q = p.toString();
     return q ? `/rankings?${q}` : "/rankings";
+  }
+
+  function playersSortHref(nextSort: RankingsSortKey): string {
+    const p = new URLSearchParams();
+    p.set("role", role);
+    p.set("scope", scope);
+    const nextOrder: RankingsSortDir =
+      nextSort === sort ? (sortDir === "desc" ? "asc" : "desc") : "desc";
+    p.set("sort", nextSort);
+    if (nextOrder === "asc") p.set("order", "asc");
+    if (country) p.set("country", country);
+    if (leagueId) p.set("league", leagueId);
+    if (freeAgentsOnly) p.set("free", "1");
+    return `/rankings?${p.toString()}`;
   }
 
   const scopeNote =
@@ -146,6 +184,8 @@ export default async function RankingsPage({
     : scope === "career" ? "Goals / saves"
     : scope === "season" ? "Goals / saves (season)"
     : "Goals / saves";
+
+  const statSortKey = statColumnSortKey(role, scope);
 
   function primaryStat(r: RankingsRow): string {
     if (role === "GK") return String(r.scope_saves);
@@ -178,13 +218,21 @@ export default async function RankingsPage({
           </div>
           <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center">
             <Link
-              href={`/leaderboards?season=${encodeURIComponent(seasonLabel)}`}
+              href={
+                seasonLabel ?
+                  `/leaderboards?season=${encodeURIComponent(seasonLabel)}`
+                : "/leaderboards"
+              }
               className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-bold text-emerald-900 hover:bg-emerald-100"
             >
               Matchday leaderboards
             </Link>
             <Link
-              href={`/dashboard?season=${encodeURIComponent(seasonLabel)}&group=rankings`}
+              href={
+                seasonLabel ?
+                  `/dashboard?season=${encodeURIComponent(seasonLabel)}&group=rankings`
+                : "/dashboard?group=rankings"
+              }
               className="text-sm font-semibold text-emerald-800 hover:underline"
             >
               ← Dashboard
@@ -223,23 +271,22 @@ export default async function RankingsPage({
       >
         <input type="hidden" name="tab" value="players" />
         <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-xs font-bold uppercase text-slate-500">
-            Season (for season stats & filters)
-            <select
-              name="season"
-              defaultValue={seasonLabel}
-              className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-medium text-slate-900"
-            >
-              {(seasons ?? []).map((s) => (
-                <option key={s.label} value={s.label}>
-                  {s.label}
-                </option>
-              ))}
-              {!seasons?.some((s) => s.label === seasonLabel) && seasonLabel && (
-                <option value={seasonLabel}>{seasonLabel}</option>
-              )}
-            </select>
-          </label>
+          <div className="flex min-w-[10rem] flex-col gap-0.5 rounded-lg border border-emerald-200/80 bg-emerald-50/60 px-3 py-2">
+            <span className="text-[0.65rem] font-bold uppercase tracking-wider text-emerald-800/90">
+              Data window
+            </span>
+            <span className="text-sm font-bold text-slate-900">
+              Live · current season
+              {seasonLabel ?
+                <span className="ml-1.5 font-mono text-xs font-semibold text-emerald-900">
+                  {seasonLabel}
+                </span>
+              : null}
+            </span>
+            <span className="text-[0.65rem] leading-snug text-slate-600">
+              Rankings always use the app&apos;s current season label (same as matchday).
+            </span>
+          </div>
           <label className="flex flex-col gap-1 text-xs font-bold uppercase text-slate-500">
             Race
             <select
@@ -267,27 +314,8 @@ export default async function RankingsPage({
               <option value="champions_league_proxy">Champions League (proxy)</option>
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-xs font-bold uppercase text-slate-500">
-            Sort by
-            <select
-              name="sort"
-              defaultValue={sort}
-              className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm font-medium"
-            >
-              <option value="market_value">Current MV</option>
-              <option value="peak_market_value">Peak MV</option>
-              <option value="career_goals">Career goals</option>
-              <option value="career_saves">Career saves</option>
-              <option value="season_goals">Season goals</option>
-              <option value="season_saves">Season saves</option>
-              <option value="scope_goals">Scope goals (tournament / proxy)</option>
-              <option value="scope_saves">Scope saves (tournament / proxy)</option>
-              <option value="avg_rating">Avg FotMob</option>
-              <option value="intl_caps">Intl caps</option>
-              <option value="intl_goals">Intl goals</option>
-              <option value="intl_saves">Intl saves</option>
-            </select>
-          </label>
+          <input type="hidden" name="sort" value={sort} />
+          {sortDir === "asc" ? <input type="hidden" name="order" value="asc" /> : null}
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-xs font-bold uppercase text-slate-500">
@@ -337,6 +365,37 @@ export default async function RankingsPage({
       </form>
       : null}
 
+      {tab === "players" && seasonLabel && (
+        <p className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600">
+          <span className="font-bold uppercase tracking-wide text-slate-500">Intl sort</span>
+          {(
+            [
+              ["intl_caps", "Caps"],
+              ["intl_goals", "Goals"],
+              ["intl_saves", "Saves"],
+            ] as const
+          ).map(([key, label]) => (
+            <Link
+              key={key}
+              href={playersSortHref(key)}
+              className={
+                sort === key ?
+                  "rounded-md bg-slate-900 px-2 py-1 font-semibold text-white"
+                : "rounded-md px-2 py-1 font-semibold text-emerald-800 hover:bg-emerald-50 hover:underline"
+              }
+              title="Click to sort; click again to reverse"
+            >
+              {label}
+              {sort === key ?
+                <span className="ml-0.5 text-[0.65rem] font-normal opacity-80">
+                  {sortDir === "desc" ? "↓" : "↑"}
+                </span>
+              : null}
+            </Link>
+          ))}
+        </p>
+      )}
+
       {loadError && (
         <div className="mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
           {loadError}
@@ -344,8 +403,9 @@ export default async function RankingsPage({
       )}
 
       {!seasonLabel && tab === "players" && (
-        <p className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-8 text-center text-sm text-slate-600">
-          Pick a season to load rankings.
+        <p className="rounded-xl border border-dashed border-amber-200 bg-amber-50/80 px-6 py-8 text-center text-sm text-amber-950">
+          No <strong>current season</strong> is set in the app (Admin → seasons / settings). Set one
+          to load player rankings.
         </p>
       )}
 
@@ -430,16 +490,81 @@ export default async function RankingsPage({
                 <th className="px-3 py-3 pl-4">#</th>
                 <th className="px-3 py-3">Player</th>
                 <th className="px-3 py-3">Club</th>
-                <th className="px-3 py-3 text-right">Value</th>
-                <th className="px-3 py-3 text-right">Trend</th>
-                <th className="px-3 py-3 text-right">{statHead}</th>
-                <th className="px-3 py-3 text-right">Peak</th>
-                <th className="px-3 py-3 pr-4 text-right">Avg</th>
+                <th className="px-3 py-3 text-right">
+                  <Link
+                    href={playersSortHref("market_value")}
+                    className={sortThClass(sort === "market_value")}
+                    title="Click to sort; click again to reverse"
+                  >
+                    Value
+                    {sort === "market_value" ?
+                      <span className="ml-0.5 text-[0.65rem] font-normal normal-case text-slate-500">
+                        {sortDir === "desc" ? "↓" : "↑"}
+                      </span>
+                    : null}
+                  </Link>
+                </th>
+                <th className="px-3 py-3 text-right">
+                  <Link
+                    href={playersSortHref("mv_trend")}
+                    className={sortThClass(sort === "mv_trend")}
+                    title="Click to sort; click again to reverse"
+                  >
+                    Trend
+                    {sort === "mv_trend" ?
+                      <span className="ml-0.5 text-[0.65rem] font-normal normal-case text-slate-500">
+                        {sortDir === "desc" ? "↓" : "↑"}
+                      </span>
+                    : null}
+                  </Link>
+                </th>
+                <th className="px-3 py-3 text-right">
+                  <Link
+                    href={playersSortHref(statSortKey)}
+                    className={sortThClass(sort === statSortKey)}
+                    title="Click to sort; click again to reverse"
+                  >
+                    {statHead}
+                    {sort === statSortKey ?
+                      <span className="ml-0.5 text-[0.65rem] font-normal normal-case text-slate-500">
+                        {sortDir === "desc" ? "↓" : "↑"}
+                      </span>
+                    : null}
+                  </Link>
+                </th>
+                <th className="px-3 py-3 text-right">
+                  <Link
+                    href={playersSortHref("peak_market_value")}
+                    className={sortThClass(sort === "peak_market_value")}
+                    title="Click to sort; click again to reverse"
+                  >
+                    Peak
+                    {sort === "peak_market_value" ?
+                      <span className="ml-0.5 text-[0.65rem] font-normal normal-case text-slate-500">
+                        {sortDir === "desc" ? "↓" : "↑"}
+                      </span>
+                    : null}
+                  </Link>
+                </th>
+                <th className="px-3 py-3 pr-4 text-right">
+                  <Link
+                    href={playersSortHref("avg_rating")}
+                    className={sortThClass(sort === "avg_rating")}
+                    title="Click to sort; click again to reverse"
+                  >
+                    Avg
+                    {sort === "avg_rating" ?
+                      <span className="ml-0.5 text-[0.65rem] font-normal normal-case text-slate-500">
+                        {sortDir === "desc" ? "↓" : "↑"}
+                      </span>
+                    : null}
+                  </Link>
+                </th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => {
-                const trend = marketTrendLabel(r.market_value_previous, r.market_value);
+                const trend = marketTrendLabel(r.mv_prior_season, r.market_value);
                 const natFlag = r.nationality_flag;
                 const natLink = r.nationality_code ? `/countries/${r.nationality_code}` : null;
                 return (
@@ -572,8 +697,25 @@ export default async function RankingsPage({
         </h2>
         <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">
           <li>
-            <strong className="font-semibold text-slate-800">Trend</strong> compares the last
-            recorded value snapshot before a sim-driven market move (not a weekly calendar).
+            Click <strong className="font-semibold text-slate-800">Value</strong>,{" "}
+            <strong className="font-semibold text-slate-800">Trend</strong>,{" "}
+            <strong className="font-semibold text-slate-800">Peak</strong>,{" "}
+            <strong className="font-semibold text-slate-800">Avg</strong>, or the goals/saves column
+            header to sort (defaults high → low). Click the <em>same</em> header again to flip to low
+            → high. <strong className="font-semibold text-slate-800">Trend</strong>{" "}
+            compares live MV to the stored value for the <em>previous</em> season label (from MV
+            history), not match-to-match bumps (rookies / first season with no prior row sort last).
+          </li>
+          <li>
+            <strong className="font-semibold text-slate-800">Wages</strong> use each club&apos;s live
+            squad MV (50% bill) — the same <code className="rounded bg-slate-100 px-1 font-mono text-xs">players.market_value</code>{" "}
+            figures, including in-season bumps after matches.
+          </li>
+          <li>
+            <strong className="font-semibold text-slate-800">End-of-season bundle</strong> can still
+            recalculate every player&apos;s MV from <em>hidden OVR only</em> (baseline curve). That is
+            separate from per-match form bumps and is useful when you want values to snap to ratings
+            at year-end — it is not redundant with match-by-match updates.
           </li>
           <li>
             <strong className="font-semibold text-slate-800">Avg</strong> uses season averages when

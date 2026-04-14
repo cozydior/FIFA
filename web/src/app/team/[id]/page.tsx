@@ -48,6 +48,8 @@ import {
 } from "@/lib/transferNotes";
 import { txCategoryDisplay } from "@/lib/playerTransfers";
 import { SeasonHistoryPager } from "@/components/SeasonHistoryPager";
+import { marketTrendLabel } from "@/lib/fotMobBadge";
+import { priorSeasonMvByPlayer } from "@/lib/mvSeasonTrend";
 import { sortSavedSimMatchesAsc } from "@/lib/savedSimMatchSort";
 
 export const revalidate = 60;
@@ -487,6 +489,22 @@ export default async function TeamPage({
     (squadStats ?? []).map((s) => [s.player_id, s]),
   );
 
+  const { data: squadMvHist } =
+    playerIds.length > 0 && currentSeason ?
+      await supabase
+        .from("player_market_value_history")
+        .select("player_id, season_label, market_value")
+        .in("player_id", playerIds)
+    : { data: [] as { player_id: string; season_label: string; market_value: number }[] };
+  const mvPriorSeasonByPlayer = priorSeasonMvByPlayer(
+    (squadMvHist ?? []).map((r) => ({
+      player_id: r.player_id as string,
+      season_label: r.season_label as string,
+      market_value: Number(r.market_value),
+    })),
+    currentSeason,
+  );
+
   const leagueDashUrl =
     currentSeason && league ?
       dashboardDomesticLeagueUrl(currentSeason, league.country)
@@ -713,6 +731,10 @@ export default async function TeamPage({
               <ul className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
                 {strikers.map((p) => {
                   const goals = statsByPlayerId.get(p.id)?.goals ?? 0;
+                  const mvTrend = marketTrendLabel(
+                    mvPriorSeasonByPlayer.get(p.id) ?? null,
+                    Number(p.market_value),
+                  );
                   return (
                     <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-3">
                       <Link
@@ -731,8 +753,21 @@ export default async function TeamPage({
                           code={codeByNationality.get(p.nationality)}
                           flag={flagByNationality.get(p.nationality) ?? null}
                         />
-                        <span className="font-mono text-slate-800">
-                          {formatMoneyPounds(Number(p.market_value))}
+                        <span className="flex flex-col items-end gap-0.5">
+                          <span className="font-mono text-slate-800">
+                            {formatMoneyPounds(Number(p.market_value))}
+                          </span>
+                          <span
+                            className={
+                              mvTrend === "—" ? "text-[0.65rem] text-slate-400"
+                              : mvTrend.startsWith("↑") ? "text-[0.65rem] font-semibold text-emerald-700"
+                              : mvTrend.startsWith("↓") ? "text-[0.65rem] font-semibold text-red-600"
+                              : "text-[0.65rem] font-semibold text-slate-600"
+                            }
+                            title="Vs prior season (MV history)"
+                          >
+                            {mvTrend}
+                          </span>
                         </span>
                       </span>
                     </li>
@@ -747,6 +782,10 @@ export default async function TeamPage({
               <ul className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
                 {goalkeepers.map((p) => {
                   const saves = statsByPlayerId.get(p.id)?.saves ?? 0;
+                  const mvTrend = marketTrendLabel(
+                    mvPriorSeasonByPlayer.get(p.id) ?? null,
+                    Number(p.market_value),
+                  );
                   return (
                     <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-3">
                       <Link
@@ -765,8 +804,21 @@ export default async function TeamPage({
                           code={codeByNationality.get(p.nationality)}
                           flag={flagByNationality.get(p.nationality) ?? null}
                         />
-                        <span className="font-mono text-slate-800">
-                          {formatMoneyPounds(Number(p.market_value))}
+                        <span className="flex flex-col items-end gap-0.5">
+                          <span className="font-mono text-slate-800">
+                            {formatMoneyPounds(Number(p.market_value))}
+                          </span>
+                          <span
+                            className={
+                              mvTrend === "—" ? "text-[0.65rem] text-slate-400"
+                              : mvTrend.startsWith("↑") ? "text-[0.65rem] font-semibold text-emerald-700"
+                              : mvTrend.startsWith("↓") ? "text-[0.65rem] font-semibold text-red-600"
+                              : "text-[0.65rem] font-semibold text-slate-600"
+                            }
+                            title="Vs prior season (MV history)"
+                          >
+                            {mvTrend}
+                          </span>
                         </span>
                       </span>
                     </li>

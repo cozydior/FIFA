@@ -1549,7 +1549,7 @@ export default async function DashboardPage({
                       Filters &amp; scope →
                     </Link>
                     <Link
-                      href={`/rankings?season=${encodeURIComponent(selectedSeason)}&role=all&scope=career&sort=market_value`}
+                      href="/rankings?role=all&scope=career&sort=market_value"
                       className="rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-slate-800"
                       >
                       Player rankings →

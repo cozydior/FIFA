@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { applyClubMatchStatsUpsert, type MatchStatPlayer } from "@/lib/applyClubMatchStatsUpsert";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
 import {
@@ -15,6 +16,11 @@ type Body = {
   awayScorerIds?: string[];
   /** Optional FotMob 0–10 per player id in the six lineup slots */
   fotMobByPlayerId?: Record<string, number>;
+  /**
+   * When true (default), add goals/shots/saves into `stats` like Match center.
+   * Turn off if that match already counted stats when it was first simmed.
+   */
+  applyPlayerStats?: boolean;
 };
 
 function aggregateStatsFromShots(
@@ -397,6 +403,7 @@ export async function POST(req: Request) {
       goals?: number;
       saves?: number;
     }[] = [];
+    const statPlayers: MatchStatPlayer[] = [];
 
     for (const p of [...homePick.lineup, ...awayPick.lineup]) {
       const custom = fotMobIn[p.id];
@@ -419,9 +426,21 @@ export async function POST(req: Request) {
       if (p.role === "ST") {
         const g = stats.goals.get(p.id) ?? 0;
         if (g > 0) row.goals = g;
+        statPlayers.push({
+          id: p.id,
+          fotMob,
+          goals: g,
+          shots: stats.shotsByStriker.get(p.id) ?? 0,
+        });
       } else {
         const sv = stats.savesByGk.get(p.id) ?? 0;
         if (sv > 0) row.saves = sv;
+        statPlayers.push({
+          id: p.id,
+          fotMob,
+          saves: sv,
+          shotsFaced: stats.facedByGk.get(p.id) ?? 0,
+        });
       }
       player_results.push(row);
     }
@@ -454,6 +473,15 @@ export async function POST(req: Request) {
         }
       : null;
 
+    const applyPlayerStats = body.applyPlayerStats !== false;
+    if (applyPlayerStats) {
+      await applyClubMatchStatsUpsert(
+        supabase,
+        fx.season_label as string,
+        statPlayers,
+      );
+    }
+
     const { data: inserted, error: insErr } = await supabase
       .from("saved_sim_matches")
       .insert({
@@ -476,6 +504,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       savedMatchId: inserted?.id as string,
+      appliedPlayerStats: applyPlayerStats,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to save";

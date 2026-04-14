@@ -48,6 +48,7 @@ import {
 } from "@/lib/transferNotes";
 import { txCategoryDisplay } from "@/lib/playerTransfers";
 import { SeasonHistoryPager } from "@/components/SeasonHistoryPager";
+import { sortSavedSimMatchesAsc } from "@/lib/savedSimMatchSort";
 
 export const revalidate = 60;
 
@@ -308,11 +309,18 @@ export default async function TeamPage({
     savedSimFixtureIds.length > 0 ?
       await supabase
         .from("fixtures")
-        .select("id, competition, league_id, country, cup_round, week")
+        .select(
+          "id, competition, league_id, country, cup_round, week, season_label, sort_order",
+        )
         .in("id", savedSimFixtureIds)
-    : { data: [] as { id: string; competition: string | null; league_id: string | null; country: string | null; cup_round: string | null; week: number | null }[] };
+    : { data: [] as { id: string; competition: string | null; league_id: string | null; country: string | null; cup_round: string | null; week: number | null; season_label: string | null; sort_order: number | null }[] };
   const savedSimFixtureById = new Map(
     (savedSimFixturesRaw ?? []).map((f) => [f.id, f]),
+  );
+
+  const savedMatchRowsChronological = sortSavedSimMatchesAsc(
+    savedMatchRows,
+    savedSimFixtureById,
   );
 
   const upTeamIds = [
@@ -484,11 +492,10 @@ export default async function TeamPage({
   const leagueCountryCode =
     league ? codeByNationality.get(league.country) : undefined;
 
-  // Form based on saved sim matches (most recent first), avoids cup/week ordering issues
-  const formLast = [...(savedMatchRows ?? [])]
+  // Last 5 by calendar (fixture week / season), oldest→newest for left-to-right chips
+  const formLast = [...savedMatchRowsChronological]
     .filter((m) => m.home_score != null && m.away_score != null)
-    .slice(0, 5)
-    .reverse();
+    .slice(-5);
 
   const balance = Number(team.current_balance ?? 0);
   const annualContracts = squadAnnualWageBill(totalSquadValue);
@@ -769,24 +776,25 @@ export default async function TeamPage({
         </div>
       </section>
 
-      {(savedMatchRows ?? []).length > 0 && (
+      {(savedMatchRowsChronological ?? []).length > 0 && (
         <section className="mt-10">
           <h2 className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-500">
             Saved match sims
           </h2>
           <p className="mb-3 text-sm text-slate-600">
             Open a frozen report (score, shot feed, ratings) from games you finished in Match center.
+            Ordered by schedule (week), not when the replay was saved.
           </p>
           <details className="group rounded-xl border border-slate-200 bg-white shadow-sm open:shadow-md">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
               <span>
-                Browse {savedMatchRows.length} saved match
-                {savedMatchRows.length === 1 ? "" : "es"}
+                Browse {savedMatchRowsChronological.length} saved match
+                {savedMatchRowsChronological.length === 1 ? "" : "es"}
               </span>
               <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
             </summary>
             <ul className="border-t border-slate-100">
-              {(savedMatchRows ?? []).map((m) => {
+              {savedMatchRowsChronological.map((m) => {
                 const isHome = m.home_team_id === id;
                 const oppId = isHome ? m.away_team_id : m.home_team_id;
                 const opp = oppById.get(oppId);

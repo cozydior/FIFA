@@ -56,6 +56,8 @@ export default function SavedMatchBackfillPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [savedMatchId, setSavedMatchId] = useState<string | null>(null);
+  /** Adds goals/shots/saves into season stats (same as Match center). Off if that match already counted. */
+  const [applyPlayerStats, setApplyPlayerStats] = useState(true);
 
   useEffect(() => {
     void (async () => {
@@ -148,6 +150,7 @@ export default function SavedMatchBackfillPage() {
           fixtureId: selectedFixtureId,
           homeScorerIds: homeScorers,
           awayScorerIds: awayScorers,
+          applyPlayerStats,
         }),
       });
       const data = await res.json();
@@ -356,6 +359,20 @@ export default function SavedMatchBackfillPage() {
             {preview.expectedHomeScorerCount === 0 && preview.expectedAwayScorerCount === 0 && (
               <p className="text-sm text-slate-600">0–0 — no scorers to assign.</p>
             )}
+
+            <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={applyPlayerStats}
+                onChange={(e) => setApplyPlayerStats(e.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-slate-300"
+              />
+              <span>
+                Update season <strong>stats</strong> (goals, shots taken, saves, shots faced,
+                appearances, average rating) for the six lineup players — same as finishing in Match
+                center. Uncheck if this fixture already updated stats when it was first simmed.
+              </span>
+            </label>
 
             <button
               type="button"

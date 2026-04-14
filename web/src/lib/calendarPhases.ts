@@ -10,10 +10,19 @@ export const WORLD_CUP_GROUP_WEEK_START = 240;
 /** Display label for fixture lists (dashboard, tournament pages). */
 export function formatFixtureCalendarLabel(
   week: number,
-  kind: "league" | "regional_cup" | "champions_league" | "international" | "world_cup",
+  kind:
+    | "league"
+    | "regional_cup"
+    | "champions_league"
+    | "international"
+    | "world_cup"
+    | "friendlies",
 ): string {
   if (kind === "international") {
     return `Intl W${week}`;
+  }
+  if (kind === "friendlies") {
+    return `Friendly W${week}`;
   }
   if (kind === "world_cup") {
     return `WC W${week}`;

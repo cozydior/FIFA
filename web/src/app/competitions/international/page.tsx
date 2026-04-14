@@ -78,7 +78,7 @@ export default async function InternationalHubPage() {
         </ul>
       </div>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-2xl border border-slate-300/90 bg-white p-5 shadow-sm">
           <h2 className="flex items-center gap-3 text-lg font-bold text-slate-900">
             <CompetitionBrandLogo slug="nations_league" className="h-12 w-12" />
@@ -136,6 +136,23 @@ export default async function InternationalHubPage() {
             />
           : (
             <p className="mt-3 text-sm text-amber-800">Set a current season in Admin to enable start buttons.</p>
+          )}
+        </div>
+        <div className="rounded-2xl border border-slate-300/90 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-bold text-slate-900">Friendlies</h2>
+          <p className="mt-2 text-sm text-slate-600">
+            Warm-up matches for nations that missed the World Cup. Schedules are created from{" "}
+            <strong>Dashboard → International → Friendlies</strong>.
+          </p>
+          {defaultSeason ?
+            <Link
+              href={`/dashboard?group=international&sub=friendlies&season=${encodeURIComponent(defaultSeason)}`}
+              className="mt-4 inline-flex rounded-lg bg-indigo-700 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-800"
+            >
+              Open Friendlies tab →
+            </Link>
+          : (
+            <p className="mt-3 text-sm text-amber-800">Set a current season in Admin first.</p>
           )}
         </div>
       </div>

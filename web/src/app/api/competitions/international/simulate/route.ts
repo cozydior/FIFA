@@ -37,7 +37,10 @@ export async function POST(req: Request) {
     let completed = 0;
 
     const mvMultiplier =
-      slug === "world_cup" ? 1.8 : slug === "nations_league" ? 1.35 : 1.2;
+      slug === "world_cup" ? 1.8
+      : slug === "nations_league" ? 1.35
+      : slug === "friendlies" ? 1.05
+      : 1.2;
 
     for (const f of fixtures ?? []) {
       const knockout = f.stage !== "group";
@@ -134,11 +137,13 @@ export async function POST(req: Request) {
 
       completed += 1;
     }
-    await progressInternationalCompetition(
-      supabase,
-      seasonLabel,
-      slug as "nations_league" | "gold_cup" | "world_cup",
-    );
+    if (slug !== "friendlies") {
+      await progressInternationalCompetition(
+        supabase,
+        seasonLabel,
+        slug as "nations_league" | "gold_cup" | "world_cup",
+      );
+    }
     return NextResponse.json({ ok: true, completed });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Sim failed";

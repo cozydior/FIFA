@@ -380,7 +380,10 @@ export async function getDashboardSummary(seasonOverride?: string) {
         const slug = comp?.slug ?? "nations_league";
         const h = ntMeta.get(f.home_national_team_id);
         const a = ntMeta.get(f.away_national_team_id);
-        const weekKind = slug === "world_cup" ? "world_cup" : "international";
+        const weekKind =
+          slug === "world_cup" ? "world_cup"
+          : slug === "friendlies" ? "friendlies"
+          : "international";
         return {
           kind: "international" as const,
           id: f.id,

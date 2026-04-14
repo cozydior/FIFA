@@ -22,6 +22,7 @@ const TITLES: Record<string, string> = {
   nations_league: "UEFA Nations League",
   gold_cup: "FIFA Gold Cup",
   world_cup: "FIFA World Cup",
+  friendlies: "Friendlies",
 };
 
 function nationalTeamDisplayFlag(
@@ -49,7 +50,7 @@ export default async function InternationalCompetitionPage({
   const honoursView = sp.view === "honours";
   const previewEnabled = await getSimPreviewTestMode();
   const tournamentsMode = await getTournamentsMode();
-  const allowIntlBootstrap = slug === "world_cup" || tournamentsMode;
+  const allowIntlBootstrap = slug === "world_cup" || (slug !== "friendlies" && tournamentsMode);
 
   if (!season) {
     return (
@@ -71,7 +72,7 @@ export default async function InternationalCompetitionPage({
     honoursView ?
       await fetchInternationalRollOfHonour(
         supabase,
-        slug as "nations_league" | "gold_cup" | "world_cup",
+        slug as "nations_league" | "gold_cup" | "world_cup" | "friendlies",
       )
     : null;
 
@@ -126,6 +127,9 @@ export default async function InternationalCompetitionPage({
     fixtures,
     { teamSaves: intlTeamSaves },
   );
+  const groupFixtures = fixtures.filter((f) => (f as { stage?: string }).stage === "group");
+  const wcHidePhantomStandings = slug === "world_cup" && groupFixtures.length === 0;
+  const tableForStandings = wcHidePhantomStandings ? [] : table;
   const byId = new Map(
     nts.map((t) => {
       const c = t.countries as
@@ -147,7 +151,6 @@ export default async function InternationalCompetitionPage({
       ] as const;
     }),
   );
-  const groupFixtures = fixtures.filter((f) => (f as any).stage === "group");
   const groupsDone =
     groupFixtures.length === 0 ||
     groupFixtures.every((f: any) => f.status === "completed");
@@ -283,7 +286,7 @@ export default async function InternationalCompetitionPage({
         </section>
       : null}
 
-      {!honoursView ?
+      {!honoursView && slug !== "friendlies" ?
         <>
           <InternationalTournamentActionBar
             slug={slug as "nations_league" | "gold_cup" | "world_cup"}
@@ -298,66 +301,90 @@ export default async function InternationalCompetitionPage({
         </>
       : null}
 
-      {!honoursView && !comp ? (
+      {!honoursView && !comp ?
         <p className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-700">
-          No competition generated for this season yet. Click “Generate competitions”.
+          {slug === "friendlies" ?
+            <>
+              No friendlies for this season yet. Open{" "}
+              <Link href="/dashboard" className="font-semibold text-emerald-800 hover:underline">
+                Dashboard
+              </Link>{" "}
+              → International → <strong>Friendlies</strong> and use <strong>Generate friendlies</strong>.
+            </>
+          : <>
+              No competition generated for this season yet. Click “Generate competitions”.
+            </>}
         </p>
-      ) : !honoursView ? (
+      : !honoursView ? (
         <div className="flex flex-col gap-6">
-          <section className="overflow-hidden rounded-2xl border border-slate-300/90 bg-white shadow-sm">
-            <h2 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold uppercase tracking-wide text-slate-600">
-              Standings
-            </h2>
-            <p className="border-b border-slate-100 bg-white px-4 py-2 text-xs text-slate-600">
-              <span className="inline-flex overflow-hidden rounded-md border border-sky-200 bg-sky-50">
-                <span className="w-1 shrink-0 bg-sky-600" aria-hidden />
-                <span className="px-2 py-0.5 font-semibold text-sky-950">Top two per group · Knockouts</span>
-              </span>
-              <span className="mt-2 block text-[0.7rem] leading-snug text-slate-600">
-                {LEAGUE_STYLE_TIEBREAK_BLURB}
-              </span>
-            </p>
-            {groupTables.length > 0 ? (
-              <div className="space-y-4 p-3">
-                {groupTables.map((g) => (
-                  <div key={g.group} className="overflow-hidden rounded-xl border border-slate-200">
-                    <div className="bg-slate-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-600">
-                      Group {g.group}
+          {slug !== "friendlies" ?
+            <section className="overflow-hidden rounded-2xl border border-slate-300/90 bg-white shadow-sm">
+              <h2 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold uppercase tracking-wide text-slate-600">
+                Standings
+              </h2>
+              {slug === "world_cup" && wcHidePhantomStandings && entries.length > 0 ?
+                <p className="border-b border-slate-100 bg-amber-50/90 px-4 py-3 text-sm text-amber-950">
+                  {entries.length >= 8 ?
+                    <>
+                      Eight qualifiers are registered for this season. The group table appears after you run{" "}
+                      <strong>Draw World Cup groups</strong> (dashboard or tournament bar) — not from entries alone.
+                    </>
+                  : <>
+                      {entries.length} World Cup qualifier
+                      {entries.length === 1 ? "" : "s"} registered — regional tournaments must produce eight
+                      qualifiers before the draw.
+                    </>}
+                </p>
+              : <p className="border-b border-slate-100 bg-white px-4 py-2 text-xs text-slate-600">
+                  <span className="inline-flex overflow-hidden rounded-md border border-sky-200 bg-sky-50">
+                    <span className="w-1 shrink-0 bg-sky-600" aria-hidden />
+                    <span className="px-2 py-0.5 font-semibold text-sky-950">Top two per group · Knockouts</span>
+                  </span>
+                  <span className="mt-2 block text-[0.7rem] leading-snug text-slate-600">
+                    {LEAGUE_STYLE_TIEBREAK_BLURB}
+                  </span>
+                </p>}
+              {groupTables.length > 0 ?
+                <div className="space-y-4 p-3">
+                  {groupTables.map((g) => (
+                    <div key={g.group} className="overflow-hidden rounded-xl border border-slate-200">
+                      <div className="bg-slate-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-600">
+                        Group {g.group}
+                      </div>
+                      <div className="p-1">
+                        <TournamentGroupStageTable
+                          rows={g.table}
+                          renderTeam={(r) => {
+                            const t = byId.get(r.teamId);
+                            return (
+                              <>
+                                <span className="mr-1">{nationalTeamDisplayFlag(t)}</span>
+                                {t?.name ?? r.teamId}
+                              </>
+                            );
+                          }}
+                        />
+                      </div>
                     </div>
-                    <div className="p-1">
-                      <TournamentGroupStageTable
-                        rows={g.table}
-                        renderTeam={(r) => {
-                          const t = byId.get(r.teamId);
-                          return (
-                            <>
-                              <span className="mr-1">{nationalTeamDisplayFlag(t)}</span>
-                              {t?.name ?? r.teamId}
-                            </>
-                          );
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-1">
-                <TournamentGroupStageTable
-                  rows={table}
-                  renderTeam={(r) => {
-                    const t = byId.get(r.teamId);
-                    return (
-                      <>
-                        <span className="mr-1">{nationalTeamDisplayFlag(t)}</span>
-                        {t?.name ?? r.teamId}
-                      </>
-                    );
-                  }}
-                />
-              </div>
-            )}
-          </section>
+                  ))}
+                </div>
+              : <div className="p-1">
+                  <TournamentGroupStageTable
+                    rows={tableForStandings}
+                    renderTeam={(r) => {
+                      const t = byId.get(r.teamId);
+                      return (
+                        <>
+                          <span className="mr-1">{nationalTeamDisplayFlag(t)}</span>
+                          {t?.name ?? r.teamId}
+                        </>
+                      );
+                    }}
+                  />
+                </div>
+              }
+            </section>
+          : null}
 
           <section className="overflow-hidden rounded-2xl border border-slate-300/90 bg-white shadow-sm">
             <h2 className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold uppercase tracking-wide text-slate-600">
@@ -374,7 +401,9 @@ export default async function InternationalCompetitionPage({
                     <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                       {formatFixtureCalendarLabel(
                         f.week,
-                        slug === "world_cup" ? "world_cup" : "international",
+                        slug === "world_cup" ? "world_cup"
+                        : slug === "friendlies" ? "friendlies"
+                        : "international",
                       )}{" "}
                       {f.stage ? `· ${String(f.stage).toUpperCase()}` : ""}
                     </p>

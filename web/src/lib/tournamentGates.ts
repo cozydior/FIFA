@@ -1,4 +1,34 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolveWorldCupQualifierNationalTeamIds } from "@/lib/federationWorldCupQual";
+import { ensureWorldCupCompetitionRow } from "@/lib/worldCupFixtures";
+
+/** Writes `international_entries` from regional recompute when it yields exactly 8 teams (fixes empty/partial rows). */
+export async function syncWorldCupInternationalEntriesFromResolution(
+  supabase: SupabaseClient,
+  seasonLabel: string,
+  wcCompetitionId: string,
+): Promise<void> {
+  const resolved = await resolveWorldCupQualifierNationalTeamIds(supabase, seasonLabel);
+  if (resolved.size !== 8) return;
+
+  const { data: existing } = await supabase
+    .from("international_entries")
+    .select("national_team_id")
+    .eq("competition_id", wcCompetitionId);
+  const ex = new Set((existing ?? []).map((r) => r.national_team_id as string));
+  const same = ex.size === 8 && [...resolved].every((id) => ex.has(id));
+  if (same) return;
+
+  await supabase.from("international_entries").delete().eq("competition_id", wcCompetitionId);
+  const { error } = await supabase.from("international_entries").insert(
+    [...resolved].map((national_team_id) => ({
+      competition_id: wcCompetitionId,
+      national_team_id,
+      group_name: null as string | null,
+    })),
+  );
+  if (error) throw new Error(error.message);
+}
 
 async function scheduledCount(
   supabase: SupabaseClient,
@@ -98,23 +128,46 @@ export async function canDrawWorldCupGroups(
   supabase: SupabaseClient,
   seasonLabel: string,
 ): Promise<{ ok: boolean; reason?: string }> {
-  const { data: wc } = await supabase
+  const season = seasonLabel.trim();
+  let { data: wc } = await supabase
     .from("international_competitions")
     .select("id")
-    .eq("season_label", seasonLabel)
+    .eq("season_label", season)
     .eq("slug", "world_cup")
     .maybeSingle();
   if (!wc) {
+    try {
+      await ensureWorldCupCompetitionRow(supabase, season);
+      ({ data: wc } = await supabase
+        .from("international_competitions")
+        .select("id")
+        .eq("season_label", season)
+        .eq("slug", "world_cup")
+        .maybeSingle());
+    } catch {
+      return { ok: false, reason: "Could not create World Cup competition for this season." };
+    }
+  }
+  if (!wc) {
     return { ok: false, reason: "World Cup competition row missing for this season." };
+  }
+  try {
+    await syncWorldCupInternationalEntriesFromResolution(supabase, season, wc.id);
+  } catch (e) {
+    return {
+      ok: false,
+      reason: e instanceof Error ? e.message : "Could not sync World Cup qualifiers from regional tables.",
+    };
   }
   const { count: ent } = await supabase
     .from("international_entries")
     .select("national_team_id", { count: "exact", head: true })
     .eq("competition_id", wc.id);
   if ((ent ?? 0) < 8) {
+    const resolved = await resolveWorldCupQualifierNationalTeamIds(supabase, season);
     return {
       ok: false,
-      reason: "Need eight national teams listed as World Cup qualifiers for this season.",
+      reason: `Need eight World Cup qualifiers for this season (database has ${ent ?? 0}; resolved ${resolved.size} from prior season regional tables). Finish both Nations League and Gold Cup group stages for the prior season, or add entries in Admin.`,
     };
   }
   const { count: fx } = await supabase

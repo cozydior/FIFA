@@ -2,6 +2,26 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fisherYatesShuffle } from "@/lib/shuffle";
 import { WORLD_CUP_GROUP_WEEK_START } from "@/lib/calendarPhases";
 
+/**
+ * Ensures a `world_cup` competition row exists for the season (upsert only — does not clear entries or fixtures).
+ */
+export async function ensureWorldCupCompetitionRow(
+  supabase: SupabaseClient,
+  seasonLabel: string,
+): Promise<string> {
+  const label = seasonLabel.trim();
+  const { data: wc, error } = await supabase
+    .from("international_competitions")
+    .upsert(
+      { season_label: label, slug: "world_cup", name: "FIFA World Cup" },
+      { onConflict: "season_label,slug" },
+    )
+    .select("id")
+    .single();
+  if (error || !wc) throw new Error(error?.message ?? "World Cup competition upsert failed");
+  return wc.id as string;
+}
+
 function roundRobin(ids: string[], startWeek: number): {
   home: string;
   away: string;
@@ -71,12 +91,22 @@ export async function tryInsertWorldCupGroupStageIfReady(
   supabase: SupabaseClient,
   seasonLabel: string,
 ): Promise<{ inserted: boolean }> {
-  const { data: wc } = await supabase
+  const season = seasonLabel.trim();
+  let { data: wc } = await supabase
     .from("international_competitions")
     .select("id")
-    .eq("season_label", seasonLabel)
+    .eq("season_label", season)
     .eq("slug", "world_cup")
     .maybeSingle();
+  if (!wc) {
+    await ensureWorldCupCompetitionRow(supabase, season);
+    ({ data: wc } = await supabase
+      .from("international_competitions")
+      .select("id")
+      .eq("season_label", season)
+      .eq("slug", "world_cup")
+      .maybeSingle());
+  }
   if (!wc) return { inserted: false };
 
   const { data: existingWcFixtures } = await supabase
@@ -84,6 +114,13 @@ export async function tryInsertWorldCupGroupStageIfReady(
     .select("id")
     .eq("competition_id", wc.id);
   if ((existingWcFixtures ?? []).length > 0) return { inserted: false };
+
+  try {
+    const { syncWorldCupInternationalEntriesFromResolution } = await import("@/lib/tournamentGates");
+    await syncWorldCupInternationalEntriesFromResolution(supabase, season, wc.id);
+  } catch (e) {
+    console.warn("[tryInsertWorldCupGroupStageIfReady] qualifier sync skipped:", e);
+  }
 
   const { data: wcEntries } = await supabase
     .from("international_entries")

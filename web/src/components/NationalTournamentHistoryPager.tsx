@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { NationalTournamentFinish } from "@/lib/nationalTournamentHistory";
 import { TwoRowHistoryPager } from "@/components/TwoRowHistoryPager";
+import { CompetitionBrandLogo } from "@/components/CompetitionBrandLogo";
 import { History } from "lucide-react";
 
 function Row({ row }: { row: NationalTournamentFinish }) {
@@ -23,7 +24,16 @@ function Row({ row }: { row: NationalTournamentFinish }) {
           <p className="font-mono text-[0.65rem] font-bold uppercase tracking-wide text-slate-500">
             {row.seasonLabel}
           </p>
-          <p className="mt-0.5 font-semibold text-slate-900">{row.competitionName}</p>
+          <div className="mt-0.5 flex min-w-0 items-center gap-2">
+            <CompetitionBrandLogo
+              slug={row.slug}
+              className="h-9 w-9"
+              title={row.competitionName}
+            />
+            <p className="min-w-0 font-semibold leading-snug text-slate-900">
+              {row.competitionName}
+            </p>
+          </div>
         </div>
         <span
           className={`inline-flex shrink-0 rounded-full px-2.5 py-1 text-[0.7rem] font-black uppercase tracking-wide ring-1 ${badge}`}

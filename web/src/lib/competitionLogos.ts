@@ -18,9 +18,10 @@ export function competitionBrandLogo(slug: string): string | undefined {
 
 /** Dashboard `sub` query values → slug keys in COMPETITION_BRAND_LOGOS */
 export function internationalSubToSlug(
-  sub: "nations-league" | "gold-cup" | "world-cup",
-): "nations_league" | "gold_cup" | "world_cup" {
+  sub: "nations-league" | "gold-cup" | "world-cup" | "friendlies",
+): "nations_league" | "gold_cup" | "world_cup" | "friendlies" {
   if (sub === "nations-league") return "nations_league";
   if (sub === "gold-cup") return "gold_cup";
+  if (sub === "friendlies") return "friendlies";
   return "world_cup";
 }

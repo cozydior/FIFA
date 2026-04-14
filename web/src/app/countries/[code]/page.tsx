@@ -30,6 +30,9 @@ import { TrophyTitleStars } from "@/components/TrophyTitleStars";
 import { HonourCabinetChips } from "@/components/HonourCabinetCompact";
 import { NationalTournamentHistoryPager } from "@/components/NationalTournamentHistoryPager";
 import { sortCabinetGroups } from "@/lib/honourDisplayOrder";
+import { computeNationalTeamPointsFromFixtures } from "@/lib/nationalTeamRanking";
+import { parseSeasonIndexFromLabel } from "@/lib/nextSeason";
+import { formatFixtureCalendarLabel } from "@/lib/calendarPhases";
 
 /** Always resolve national team from DB on each request (avoids stale cached pages showing no NT). */
 export const dynamic = "force-dynamic";
@@ -136,6 +139,26 @@ function EligibleRoleDivider({ label }: { label: string }) {
       </span>
     </li>
   );
+}
+
+function intlSlugToWeekKind(slug: string): "world_cup" | "international" | "friendlies" {
+  if (slug === "world_cup") return "world_cup";
+  if (slug === "friendlies") return "friendlies";
+  return "international";
+}
+
+function compareIntlScheduleChron(
+  a: { season_label: string; week: number },
+  b: { season_label: string; week: number },
+): number {
+  const na = parseSeasonIndexFromLabel(a.season_label);
+  const nb = parseSeasonIndexFromLabel(b.season_label);
+  if (na != null && nb != null && na !== nb) return na - nb;
+  if (na != null && nb == null) return -1;
+  if (na == null && nb != null) return 1;
+  const sd = a.season_label.localeCompare(b.season_label);
+  if (sd !== 0) return sd;
+  return a.week - b.week;
 }
 
 function intlStageDetail(stage: string, groupName: string | null, week: number): string {
@@ -353,9 +376,22 @@ export default async function CountryPage({
     competitionName: string;
     aetDisplayLine: string | null;
   };
+  type IntlScheduleRow = {
+    id: string;
+    week: number;
+    season_label: string;
+    competitionSlug: string;
+    competitionName: string;
+    home_national_team_id: string;
+    away_national_team_id: string;
+  };
   let intlFormLast: IntlFormRow[] = [];
   let intlSimMatchHistory: IntlSimRow[] = [];
-  const intlFormOpp = new Map<string, { name: string; flag_emoji: string | null }>();
+  let intlUpcomingSchedule: IntlScheduleRow[] = [];
+  const intlFormOpp = new Map<
+    string,
+    { name: string; flag_emoji: string | null; countryCode: string | null }
+  >();
 
   if (nt) {
     const { data: ifx } = await supabase
@@ -442,7 +478,79 @@ export default async function CountryPage({
           (country?.flag_emoji as string | null) ??
           (o.flag_emoji as string | null) ??
           (code ? countryCodeToFlagEmoji(code) : null);
-        intlFormOpp.set(o.id, { name: o.name, flag_emoji: displayFlag });
+        intlFormOpp.set(o.id, {
+          name: o.name,
+          flag_emoji: displayFlag,
+          countryCode: code ? code.toLowerCase() : null,
+        });
+      }
+    }
+
+    const { data: schedRaw } = await supabase
+      .from("international_fixtures")
+      .select("id, week, home_national_team_id, away_national_team_id, competition_id")
+      .or(`home_national_team_id.eq.${nt.id},away_national_team_id.eq.${nt.id}`)
+      .eq("status", "scheduled");
+
+    const schedCompIds = [...new Set((schedRaw ?? []).map((x) => x.competition_id).filter(Boolean))] as string[];
+    const { data: schedCompsMeta } =
+      schedCompIds.length > 0 ?
+        await supabase
+          .from("international_competitions")
+          .select("id, season_label, slug, name")
+          .in("id", schedCompIds)
+      : { data: [] as { id: string; season_label: string; slug: string; name: string }[] };
+    const schedCompById = new Map(
+      (schedCompsMeta ?? []).map((c) => [
+        c.id,
+        { season_label: c.season_label, slug: c.slug, name: c.name },
+      ]),
+    );
+
+    const enrichedSched: IntlScheduleRow[] = (schedRaw ?? []).map((f) => {
+      const meta = schedCompById.get(f.competition_id);
+      return {
+        id: f.id as string,
+        week: Number(f.week),
+        season_label: meta?.season_label ?? "",
+        competitionSlug: meta?.slug ?? "",
+        competitionName: meta?.name ?? "International",
+        home_national_team_id: f.home_national_team_id as string,
+        away_national_team_id: f.away_national_team_id as string,
+      };
+    });
+    enrichedSched.sort(compareIntlScheduleChron);
+    intlUpcomingSchedule = enrichedSched.slice(0, 20);
+
+    const schedOppIds = [
+      ...new Set(
+        intlUpcomingSchedule.map((f) =>
+          f.home_national_team_id === nt.id ? f.away_national_team_id : f.home_national_team_id,
+        ),
+      ),
+    ];
+    const missingSchedOpp = schedOppIds.filter((oid) => !intlFormOpp.has(oid));
+    if (missingSchedOpp.length > 0) {
+      const { data: sopps } = await supabase
+        .from("national_teams")
+        .select("id, name, flag_emoji, countries(code, flag_emoji)")
+        .in("id", missingSchedOpp);
+      for (const o of sopps ?? []) {
+        const c = o.countries as
+          | { code?: string; flag_emoji?: string | null }
+          | { code?: string; flag_emoji?: string | null }[]
+          | null;
+        const countryRow = Array.isArray(c) ? c[0] ?? null : c;
+        const oppCode = typeof countryRow?.code === "string" ? countryRow.code : "";
+        const displayFlag =
+          (countryRow?.flag_emoji as string | null) ??
+          (o.flag_emoji as string | null) ??
+          (oppCode ? countryCodeToFlagEmoji(oppCode) : null);
+        intlFormOpp.set(o.id, {
+          name: o.name,
+          flag_emoji: displayFlag,
+          countryCode: oppCode ? oppCode.toLowerCase() : null,
+        });
       }
     }
   }
@@ -474,12 +582,22 @@ export default async function CountryPage({
   let poolRankGlobalTotal = 0;
   let callupRankConfTotal = 0;
   let callupRankGlobalTotal = 0;
+  let ratingRankGlobal: number | null = null;
+  let ratingRankGlobalTotal = 0;
 
   if (nt) {
-    const { data: ntAll } = await supabase
-      .from("national_teams")
-      .select("id, confederation, countries(name)")
-      .order("name");
+    const [{ data: ntAll }, { data: intlFxAll }] = await Promise.all([
+      supabase
+        .from("national_teams")
+        .select("id, name, confederation, countries(name)")
+        .order("name"),
+      supabase
+        .from("international_fixtures")
+        .select(
+          "home_national_team_id, away_national_team_id, home_score, away_score, stage, status",
+        )
+        .eq("status", "completed"),
+    ]);
     const rows = ntAll ?? [];
     const countryNames = [
       ...new Set(
@@ -502,6 +620,27 @@ export default async function CountryPage({
       if (nm) confByCountryName.set(nm, String(r.confederation ?? "").trim());
     }
     const myConf = String(nt.confederation ?? "").trim();
+
+    const pointsByNtRating = new Map(
+      computeNationalTeamPointsFromFixtures(intlFxAll ?? []).map((r) => [r.nationalTeamId, r]),
+    );
+    const sortRating = (a: (typeof rows)[number], b: (typeof rows)[number]) => {
+      const ida = a.id as string;
+      const idb = b.id as string;
+      const pa = pointsByNtRating.get(ida)?.rating ?? 0;
+      const pb = pointsByNtRating.get(idb)?.rating ?? 0;
+      if (pb !== pa) return pb - pa;
+      const recA = pointsByNtRating.get(ida);
+      const recB = pointsByNtRating.get(idb);
+      const gdA = (recA?.won ?? 0) - (recA?.lost ?? 0);
+      const gdB = (recB?.won ?? 0) - (recB?.lost ?? 0);
+      if (gdB !== gdA) return gdB - gdA;
+      return String(a.name ?? "").localeCompare(String(b.name ?? ""));
+    };
+    const ratingGlobalOrder = [...rows].sort(sortRating);
+    ratingRankGlobalTotal = ratingGlobalOrder.length;
+    const gIdx = ratingGlobalOrder.findIndex((r) => r.id === nt.id);
+    ratingRankGlobal = gIdx >= 0 ? gIdx + 1 : null;
 
     if (countryNames.length > 0) {
       const { data: poolPlayers } = await supabase
@@ -603,10 +742,13 @@ export default async function CountryPage({
                   <strong>Seed national teams</strong> in Admin (or sync data with your deployed environment).
                 </p>
               )}
-              {nt && season.trim() ?
-                <p className="mt-4 inline-flex rounded-2xl bg-emerald-50 px-4 py-2 font-mono text-sm font-bold text-emerald-950 ring-1 ring-emerald-200/80">
-                  {/^season\s+/i.test(season.trim()) ? season.trim() : `Season ${season.trim()}`}
-                </p>
+              {nt && ratingRankGlobal != null ?
+                <ul className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
+                  <li className="flex flex-wrap items-center gap-2">
+                    <span className={RANK_ROW_LABEL_CLASS}>Rating</span>
+                    <RankNumberBubble rank={ratingRankGlobal} total={ratingRankGlobalTotal} />
+                  </li>
+                </ul>
               : null}
             </div>
           </div>
@@ -919,6 +1061,123 @@ export default async function CountryPage({
                 })}
               </ul>
             </details>
+          </section>
+        )}
+
+        {nt && intlUpcomingSchedule.length > 0 && (
+          <section className="mb-8">
+            <h2 className="mb-4 text-xs font-bold uppercase tracking-widest text-slate-500">
+              Schedule (next fixtures)
+            </h2>
+            <ul className="space-y-2">
+              {intlUpcomingSchedule.map((f) => {
+                const isHome = f.home_national_team_id === nt.id;
+                const oppId = isHome ? f.away_national_team_id : f.home_national_team_id;
+                const opp = intlFormOpp.get(oppId);
+                const oppName = opp?.name ?? "Opponent";
+                const weekLabel = formatFixtureCalendarLabel(f.week, intlSlugToWeekKind(f.competitionSlug));
+                const tourHref =
+                  f.competitionSlug ?
+                    `/competitions/international/${f.competitionSlug}?season=${encodeURIComponent(f.season_label)}`
+                  : null;
+                return (
+                  <li
+                    key={f.id}
+                    className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
+                  >
+                    <p className="flex flex-wrap items-center gap-3">
+                      {f.competitionSlug ?
+                        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200/80 bg-white p-0.5 shadow-sm">
+                          <CompetitionBrandLogo slug={f.competitionSlug} className="h-6 w-6" />
+                        </span>
+                      : null}
+                      <span className="text-lg font-semibold tracking-tight text-slate-900">{weekLabel}</span>
+                      <span className="text-sm font-medium tabular-nums text-slate-500">{f.season_label}</span>
+                      {tourHref ?
+                        <Link
+                          href={tourHref}
+                          className="min-w-0 max-w-[10rem] truncate text-xs font-semibold text-slate-600 hover:text-emerald-800 hover:underline sm:max-w-[14rem]"
+                        >
+                          {f.competitionName}
+                        </Link>
+                      : <span className="min-w-0 max-w-[10rem] truncate text-xs font-semibold text-slate-600 sm:max-w-[14rem]">
+                          {f.competitionName}
+                        </span>}
+                    </p>
+                    <span className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-2 font-semibold text-slate-900 sm:justify-end">
+                      <span className="inline-flex items-center gap-2">
+                        {isHome ?
+                          <>
+                            {displayFlag ?
+                              <span className="text-xl leading-none" aria-hidden>
+                                {displayFlag}
+                              </span>
+                            : null}
+                            <span>{nt.name}</span>
+                            <span className="text-slate-400">v</span>
+                            {opp?.countryCode ?
+                              <Link
+                                href={`/countries/${opp.countryCode}`}
+                                className="inline-flex items-center gap-2 hover:text-emerald-800 hover:underline"
+                              >
+                                {opp.flag_emoji ?
+                                  <span className="text-xl leading-none" aria-hidden>
+                                    {opp.flag_emoji}
+                                  </span>
+                                : null}
+                                {oppName}
+                              </Link>
+                            : <span className="inline-flex items-center gap-2">
+                                {opp?.flag_emoji ?
+                                  <span className="text-xl leading-none" aria-hidden>
+                                    {opp.flag_emoji}
+                                  </span>
+                                : null}
+                                {oppName}
+                              </span>}
+                          </>
+                        : <>
+                            {opp?.countryCode ?
+                              <Link
+                                href={`/countries/${opp.countryCode}`}
+                                className="inline-flex items-center gap-2 hover:text-emerald-800 hover:underline"
+                              >
+                                {opp?.flag_emoji ?
+                                  <span className="text-xl leading-none" aria-hidden>
+                                    {opp.flag_emoji}
+                                  </span>
+                                : null}
+                                {oppName}
+                              </Link>
+                            : <span className="inline-flex items-center gap-2">
+                                {opp?.flag_emoji ?
+                                  <span className="text-xl leading-none" aria-hidden>
+                                    {opp.flag_emoji}
+                                  </span>
+                                : null}
+                                {oppName}
+                              </span>}
+                            <span className="text-slate-400">@</span>
+                            {displayFlag ?
+                              <span className="text-xl leading-none" aria-hidden>
+                                {displayFlag}
+                              </span>
+                            : null}
+                            <span>{nt.name}</span>
+                          </>
+                        }
+                      </span>
+                    </span>
+                    <Link
+                      href={`/matchday?intlFixtureId=${encodeURIComponent(f.id)}`}
+                      className="shrink-0 text-xs font-bold text-emerald-700 hover:underline"
+                    >
+                      Match center →
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
           </section>
         )}
 

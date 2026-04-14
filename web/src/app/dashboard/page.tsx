@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Goal, LayoutDashboard, Newspaper, Radio, Shield, Trophy } from "lucide-react";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { getDashboardSummary } from "@/lib/dashboardData";
-import { formatFixtureCalendarLabel } from "@/lib/calendarPhases";
+import { formatFixtureCalendarLabel, WORLD_CUP_GROUP_WEEK_START } from "@/lib/calendarPhases";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
 import {
@@ -32,6 +32,7 @@ import { formatMoneyPounds } from "@/lib/formatMoney";
 import { formatLeagueNameForDisplay } from "@/lib/trophyCabinet";
 import { getSimPreviewTestMode, getTournamentsMode } from "@/lib/appSettings";
 import { InternationalTournamentActionBar } from "@/components/InternationalTournamentActionBar";
+import { GenerateFriendliesButton } from "@/components/GenerateFriendliesButton";
 import { NationalTeamHonourLink } from "@/components/NationalTeamHonourLink";
 import { ChampionsLeagueTournamentBoard } from "@/components/ChampionsLeagueTournamentBoard";
 import { TournamentGroupStageTable } from "@/components/TournamentGroupStageTable";
@@ -44,7 +45,7 @@ type DashboardData = Awaited<ReturnType<typeof getDashboardSummary>>;
 type DashboardNav =
   | { group: "leagues"; sub: "england" | "spain" | "france" }
   | { group: "cl"; sub: null }
-  | { group: "international"; sub: "nations-league" | "gold-cup" | "world-cup" }
+  | { group: "international"; sub: "nations-league" | "gold-cup" | "world-cup" | "friendlies" }
   | { group: "rankings"; sub: null };
 
 function resolveDashboardNav(
@@ -60,7 +61,7 @@ function resolveDashboardNav(
   if (group === "cl") return { group: "cl", sub: null };
   if (
     group === "international" &&
-    (sub === "nations-league" || sub === "gold-cup" || sub === "world-cup")
+    (sub === "nations-league" || sub === "gold-cup" || sub === "world-cup" || sub === "friendlies")
   ) {
     return { group: "international", sub };
   }
@@ -71,6 +72,7 @@ function resolveDashboardNav(
   if (tab === "nations-league") return { group: "international", sub: "nations-league" };
   if (tab === "gold-cup") return { group: "international", sub: "gold-cup" };
   if (tab === "world-cup") return { group: "international", sub: "world-cup" };
+  if (tab === "friendlies") return { group: "international", sub: "friendlies" };
   if (tab === "england" || tab === "spain" || tab === "france") {
     return { group: "leagues", sub: tab };
   }
@@ -178,14 +180,17 @@ export default async function DashboardPage({
   const countryFlag = new Map((countriesDb ?? []).map((c) => [c.name.toLowerCase(), c.flag_emoji]));
 
   async function getIntl(slug: string) {
-    if (!selectedSeason) return { table: [], fixtures: [] as any[] };
+    if (!selectedSeason) {
+      return { table: [], fixtures: [] as any[], wcQualifiersRegistered: 0 };
+    }
+    const seasonKey = selectedSeason.trim();
     const { data: comp } = await supabase
       .from("international_competitions")
       .select("id")
-      .eq("season_label", selectedSeason)
+      .eq("season_label", seasonKey)
       .eq("slug", slug)
       .maybeSingle();
-    if (!comp) return { table: [], fixtures: [] as any[] };
+    if (!comp) return { table: [], fixtures: [] as any[], wcQualifiersRegistered: 0 };
     const [{ data: entries }, { data: fixtures }, { data: nts }] = await Promise.all([
       supabase.from("international_entries").select("national_team_id").eq("competition_id", comp.id),
       supabase
@@ -220,7 +225,7 @@ export default async function DashboardPage({
     );
     const intlTeamSaves = await fetchInternationalSavesByNationalTeam(
       supabase,
-      selectedSeason,
+      seasonKey,
       slug,
     );
     const table = computeInternationalTable(
@@ -229,6 +234,8 @@ export default async function DashboardPage({
       { teamSaves: intlTeamSaves },
     );
     const groupFixtures = (fixtures ?? []).filter((f: any) => f.stage === "group");
+    const wcHidePhantomStandings = slug === "world_cup" && groupFixtures.length === 0;
+    const wcQualifiersRegistered = wcHidePhantomStandings ? (entries ?? []).length : 0;
     const groupsDone =
       groupFixtures.length === 0 ||
       groupFixtures.every((f: any) => f.status === "completed");
@@ -252,7 +259,7 @@ export default async function DashboardPage({
       };
     });
     return {
-      table: table.map((r) => {
+      table: (wcHidePhantomStandings ? [] : table).map((r) => {
         const m = ntMeta.get(r.teamId);
         return {
           ...r,
@@ -261,6 +268,7 @@ export default async function DashboardPage({
           countryCode: m?.code ?? null,
         };
       }),
+      wcQualifiersRegistered,
       fixtures: (fixtures ?? [])
         .filter((f: any) => f.stage === "group" || groupsDone)
         .map((f) => {
@@ -321,11 +329,12 @@ export default async function DashboardPage({
     if (typeof div === "string" && div.trim()) regionalTeamDivision.set(t.id, div.trim());
   }
 
-  const [nationsLeague, goldCup, worldCup, clEntries, clFixturesRaw, , honoursPayload, cupHonoursPayload] =
+  const [nationsLeague, goldCup, worldCup, friendlies, clEntries, clFixturesRaw, , honoursPayload, cupHonoursPayload] =
     await Promise.all([
     getIntl("nations_league"),
     getIntl("gold_cup"),
     getIntl("world_cup"),
+    getIntl("friendlies"),
     selectedSeason
       ? supabase
           .from("tournament_entries")
@@ -386,6 +395,8 @@ export default async function DashboardPage({
           "nations_league"
         : nav.sub === "gold-cup" ?
           "gold_cup"
+        : nav.sub === "friendlies" ?
+          "friendlies"
         : "world_cup",
       )
     : Promise.resolve(null),
@@ -710,6 +721,7 @@ export default async function DashboardPage({
                 { id: "nations-league" as const, label: "Nations League", slug: "nations_league" as const },
                 { id: "gold-cup" as const, label: "Gold Cup", slug: "gold_cup" as const },
                 { id: "world-cup" as const, label: "World Cup", slug: "world_cup" as const },
+                { id: "friendlies" as const, label: "Friendlies", slug: "friendlies" as const },
               ] as const
             ).map((x) => (
               <Link
@@ -770,6 +782,8 @@ export default async function DashboardPage({
                       "Nations League"
                     : nav.sub === "gold-cup" ?
                       "Gold Cup"
+                    : nav.sub === "friendlies" ?
+                      "Friendlies"
                     : "World Cup")}
                   {nav.group === "rankings" && "Goal & save leaderboards"}
                 </>
@@ -1366,46 +1380,88 @@ export default async function DashboardPage({
               <section className="rounded-2xl border border-slate-300/90 bg-white p-4 shadow-sm">
                 {(() => {
                   const dataset =
-                    nav.sub === "nations-league"
-                      ? nationsLeague
-                      : nav.sub === "gold-cup"
-                        ? goldCup
-                        : worldCup;
+                    nav.sub === "nations-league" ?
+                      nationsLeague
+                    : nav.sub === "gold-cup" ?
+                      goldCup
+                    : nav.sub === "friendlies" ?
+                      friendlies
+                    : worldCup;
                   const intlSlug =
                     nav.sub === "nations-league" ? "nations_league"
                     : nav.sub === "gold-cup" ? "gold_cup"
+                    : nav.sub === "friendlies" ? "friendlies"
                     : "world_cup";
+                  const intlWeekKind =
+                    nav.sub === "world-cup" ? "world_cup"
+                    : nav.sub === "friendlies" ? "friendlies"
+                    : ("international" as const);
                   return (
                     <>
-                      {selectedSeason ?
+                      {selectedSeason && nav.sub !== "friendlies" ?
                         <InternationalTournamentActionBar
                           className="mb-4 mt-0 border-indigo-200/90 bg-gradient-to-br from-indigo-50/60 to-white"
-                          slug={intlSlug}
+                          slug={intlSlug as "nations_league" | "gold_cup" | "world_cup"}
                           seasonLabel={selectedSeason}
                           previewEnabled={previewEnabled}
                           allowBootstrap={intlSlug === "world_cup" || tournamentsMode}
                         />
+                      : null}
+                      {nav.sub === "friendlies" && selectedSeason ?
+                        <div className="mb-4 rounded-xl border border-indigo-200/90 bg-gradient-to-br from-indigo-50/50 to-white p-4">
+                          <p className="text-sm text-slate-700">
+                            Four exhibition matches in the window just before World Cup weeks: four national teams
+                            that did not qualify for this season&apos;s World Cup, each playing twice.
+                          </p>
+                          <div className="mt-3">
+                            <GenerateFriendliesButton seasonLabel={selectedSeason} />
+                          </div>
+                        </div>
                       : null}
                       <h3 className="flex items-center gap-2 text-lg font-bold text-slate-900">
                         <CompetitionBrandLogo
                           slug={internationalSubToSlug(nav.sub)}
                           className="h-9 w-9"
                         />
-                        {nav.sub === "nations-league"
-                          ? "Nations League"
-                          : nav.sub === "gold-cup"
-                            ? "Gold Cup"
-                            : "World Cup"}
+                        {nav.sub === "nations-league" ?
+                          "Nations League"
+                        : nav.sub === "gold-cup" ?
+                          "Gold Cup"
+                        : nav.sub === "friendlies" ?
+                          "Friendlies"
+                        : "World Cup"}
                       </h3>
-                      <p className="mt-1 text-xs text-slate-600">{LEAGUE_STYLE_TIEBREAK_BLURB}</p>
-                      <p className="mt-2 text-xs text-slate-600">
-                        <span className="inline-flex overflow-hidden rounded-md border border-sky-200 bg-sky-50">
-                          <span className="w-1 shrink-0 bg-sky-600" aria-hidden />
-                          <span className="px-2 py-0.5 font-semibold text-sky-950">Top two · Knockouts</span>
-                        </span>
-                      </p>
+                      {nav.sub === "world-cup" && (dataset as { wcQualifiersRegistered?: number }).wcQualifiersRegistered ?
+                        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-sm text-amber-950">
+                          {(dataset as { wcQualifiersRegistered?: number }).wcQualifiersRegistered! >= 8 ?
+                            <>
+                              Eight qualifiers are registered — the group table appears after{" "}
+                              <strong>Draw World Cup groups</strong>. Until then, standings stay hidden.
+                            </>
+                          : <>
+                              {(dataset as { wcQualifiersRegistered?: number }).wcQualifiersRegistered} qualifier
+                              {(dataset as { wcQualifiersRegistered?: number }).wcQualifiersRegistered === 1 ? "" : "s"}{" "}
+                              registered (need eight before the draw).
+                            </>}
+                        </p>
+                      : null}
+                      {nav.sub !== "friendlies" ?
+                        <>
+                          <p className="mt-1 text-xs text-slate-600">{LEAGUE_STYLE_TIEBREAK_BLURB}</p>
+                          <p className="mt-2 text-xs text-slate-600">
+                            <span className="inline-flex overflow-hidden rounded-md border border-sky-200 bg-sky-50">
+                              <span className="w-1 shrink-0 bg-sky-600" aria-hidden />
+                              <span className="px-2 py-0.5 font-semibold text-sky-950">Top two · Knockouts</span>
+                            </span>
+                          </p>
+                        </>
+                      : <p className="mt-1 text-xs text-slate-600">
+                          Scheduled in calendar weeks {WORLD_CUP_GROUP_WEEK_START - 4}–
+                          {WORLD_CUP_GROUP_WEEK_START - 1} (immediately before World Cup group weeks).
+                        </p>}
                       <div className="mt-4 flex flex-col gap-4">
-                        <div className="overflow-hidden rounded-xl border border-slate-200">
+                        {nav.sub !== "friendlies" ?
+                          <div className="overflow-hidden rounded-xl border border-slate-200">
                           {dataset.groupTables?.length ? (
                             <div className="space-y-3 p-3">
                               {dataset.groupTables.map((g: any) => (
@@ -1469,14 +1525,17 @@ export default async function DashboardPage({
                             </div>
                           )}
                         </div>
+                        : null}
                         <ul className="max-h-96 overflow-auto rounded-xl border border-slate-200 divide-y divide-slate-100">
-                          {dataset.fixtures.map((f: any) => (
+                          {(dataset.fixtures ?? []).length === 0 && nav.sub === "friendlies" ?
+                            <li className="px-3 py-4 text-sm text-slate-500">
+                              No friendlies scheduled yet — use <strong>Generate friendlies</strong> above.
+                            </li>
+                          : null}
+                          {(dataset.fixtures ?? []).map((f: any) => (
                             <li key={f.id} className="px-3 py-2 text-sm">
                               <p className="text-xs text-slate-500">
-                                {formatFixtureCalendarLabel(
-                                  f.week,
-                                  nav.sub === "world-cup" ? "world_cup" : "international",
-                                )}
+                                {formatFixtureCalendarLabel(f.week, intlWeekKind)}
                                 {f.stage && f.stage !== "group" ?
                                   <span className="ml-2 font-bold text-indigo-700">
                                     · {String(f.stage).toUpperCase()}

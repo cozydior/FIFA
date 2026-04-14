@@ -207,7 +207,7 @@ export async function fetchDomesticCupRoll(
  */
 export async function fetchInternationalRollOfHonour(
   supabase: SupabaseClient,
-  slug: "nations_league" | "gold_cup" | "world_cup",
+  slug: "nations_league" | "gold_cup" | "world_cup" | "friendlies",
 ): Promise<
   {
     seasonLabel: string;

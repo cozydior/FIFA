@@ -345,7 +345,7 @@ async function ensureWorldCupEntriesFromRegional(
   topA: string[],
   topB: string[],
 ) {
-  const wcSeason = await getNextSeasonLabelAfter(supabase, seasonLabel);
+  const wcSeason = await getNextSeasonLabelAfter(supabase, seasonLabel.trim());
   if (!wcSeason) return;
 
   const { data: wc, error: wce } = await supabase

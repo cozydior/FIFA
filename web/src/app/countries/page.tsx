@@ -5,6 +5,12 @@ import { hasDomesticClubFootball } from "@/lib/dashboardLinks";
 import { computeNationalTeamPointsFromFixtures } from "@/lib/nationalTeamRanking";
 import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
 import { formatMoneyPounds } from "@/lib/formatMoney";
+import {
+  parseSeasonNumberFromLabel,
+  resolveWorldCupQualifierNationalTeamIds,
+} from "@/lib/federationWorldCupQual";
+import { countSeasonsWithTrophySlug, definitionsBySlug, type TrophyDefinitionRow } from "@/lib/trophyCabinet";
+import { TrophyTitleStars } from "@/components/TrophyTitleStars";
 
 export const revalidate = 60;
 
@@ -31,18 +37,27 @@ export default async function NationalTeamsIndexPage({
   const seasonLabel = seasonFromUrl || (await getCurrentSeasonLabel()) || "";
 
   const supabase = getSupabaseAdmin();
-  const [{ data: ntsRaw }, { data: intlFx }, { data: seasonsRows }] = await Promise.all([
-    supabase
-      .from("national_teams")
-      .select("id, name, confederation, flag_emoji, countries(code, name, flag_emoji)"),
-    supabase
-      .from("international_fixtures")
-      .select(
-        "home_national_team_id, away_national_team_id, home_score, away_score, stage, status",
-      )
-      .eq("status", "completed"),
-    supabase.from("seasons").select("label").order("created_at", { ascending: false }),
-  ]);
+  const [{ data: ntsRaw }, { data: intlFx }, { data: seasonsRows }, { data: trophyDefs }] =
+    await Promise.all([
+      supabase
+        .from("national_teams")
+        .select("id, name, confederation, flag_emoji, trophies, countries(code, name, flag_emoji)"),
+      supabase
+        .from("international_fixtures")
+        .select(
+          "home_national_team_id, away_national_team_id, home_score, away_score, stage, status",
+        )
+        .eq("status", "completed"),
+      supabase.from("seasons").select("label").order("created_at", { ascending: false }),
+      supabase.from("trophy_definitions").select("id, slug, name, icon_url, sort_order"),
+    ]);
+
+  const trophyDefMap = definitionsBySlug((trophyDefs ?? []) as TrophyDefinitionRow[]);
+  const seasonNum = seasonLabel ? parseSeasonNumberFromLabel(seasonLabel) : null;
+  const wcQualIds =
+    seasonLabel && seasonNum != null && seasonNum % 2 === 0 ?
+      await resolveWorldCupQualifierNationalTeamIds(supabase, seasonLabel)
+    : new Set<string>();
 
   const pointsRows = computeNationalTeamPointsFromFixtures(intlFx ?? []);
   const pointsByNt = new Map(pointsRows.map((r) => [r.nationalTeamId, r]));
@@ -135,6 +150,56 @@ export default async function NationalTeamsIndexPage({
   const hrefRating = `/countries${countriesIndexQuery({ season: seasonLabel || undefined })}`;
   const hrefMvPool = `/countries${countriesIndexQuery({ rank: "mv", squad: undefined, season: seasonLabel || undefined })}`;
   const hrefMvCallups = `/countries${countriesIndexQuery({ rank: "mv", squad: "callups", season: seasonLabel || undefined })}`;
+
+  function FederationWcQualBadge({
+    confederation,
+    nationalTeamId,
+  }: {
+    confederation: string | null | undefined;
+    nationalTeamId: string;
+  }) {
+    const u = (confederation ?? "").toUpperCase();
+    if (u !== "UEFA" && u !== "FIFA") {
+      return <span className="text-xs text-slate-300">—</span>;
+    }
+    if (seasonNum == null || !seasonLabel.trim()) {
+      return <span className="text-xs text-slate-300">—</span>;
+    }
+    if (seasonNum % 2 === 1) {
+      return (
+        <span
+          className="inline-flex h-7 min-w-[2.25rem] items-center justify-center rounded-full bg-slate-200 px-1.5 text-[0.6rem] font-black uppercase tracking-wide text-slate-600 ring-1 ring-slate-300/80"
+          title="World Cup qualification is shown in even seasons (Season 2, 4, …)"
+        >
+          TBD
+        </span>
+      );
+    }
+    if (wcQualIds.size === 0) {
+      return (
+        <span
+          className="inline-flex h-7 min-w-[2.25rem] items-center justify-center rounded-full bg-slate-200 px-1.5 text-[0.6rem] font-black uppercase tracking-wide text-slate-600 ring-1 ring-slate-300/80"
+          title="Qualifiers not set yet — complete the prior season’s Nations League and Gold Cup groups"
+        >
+          TBD
+        </span>
+      );
+    }
+    const qualified = wcQualIds.has(nationalTeamId);
+    return qualified ?
+        <span
+          className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500 text-[0.7rem] font-black text-white shadow-sm ring-1 ring-emerald-600/50"
+          title="Qualified for this season’s World Cup"
+        >
+          Q
+        </span>
+      : <span
+          className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-red-500 text-[0.7rem] font-black text-white shadow-sm ring-1 ring-red-700/40"
+          title="Eliminated — did not finish top two in the prior season’s regional group"
+        >
+          E
+        </span>;
+  }
 
   function NtCard({
     t,
@@ -311,18 +376,25 @@ export default async function NationalTeamsIndexPage({
                   <>
                     Net rating from all completed international fixtures: wins add points (with extra weight in semis
                     and finals), draws add 1, losses subtract (heavier in knockouts). Rating can go negative. Sorted by
-                    rating, then W−L, then name.
+                    rating, then W−L, then name.{" "}
+                    <strong className="font-semibold text-slate-700">WC column:</strong> odd seasons (Season 1, 3, …)
+                    show TBD; even seasons (Season 2, 4, …) show{" "}
+                    <span className="whitespace-nowrap font-semibold text-emerald-800">Q</span> (qualified for this
+                    season&apos;s World Cup) or{" "}
+                    <span className="whitespace-nowrap font-semibold text-red-700">E</span> (not in the top two of a
+                    regional group in the prior season, or not in WC entries). Gold stars are FIFA World Cup titles.
                   </>
                 : squadBasis === "pool" ?
                   <>
                     Sum of <strong>market value</strong> for every player with that nationality (full pool). Sorted by
-                    total descending.
+                    total descending. WC column uses the same season as the URL / current season (even seasons: Q or E
+                    from World Cup entries or prior regional groups; odd: TBD). Gold stars are World Cup titles.
                   </>
                 : <>
                     Sum of <strong>market value</strong> for the season&apos;s three call-up slots per nation. Uses
                     season{" "}
                     <span className="font-mono font-semibold text-slate-800">{seasonLabel || "—"}</span>. Sorted by
-                    total descending.
+                    total descending. Same WC / star legend as rating mode.
                   </>}
               </p>
               <div className="mt-4 overflow-x-auto">
@@ -331,6 +403,12 @@ export default async function NationalTeamsIndexPage({
                     <tr className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                       <th className="py-2 pr-3">#</th>
                       <th className="py-2 pr-3">Team</th>
+                      <th
+                        className="py-2 pr-3 text-center"
+                        title="World Cup qualification for this season (UEFA / FIFA teams only)"
+                      >
+                        WC
+                      </th>
                       <th className="py-2 pr-3">Confed.</th>
                       {rankBy === "rating" ?
                         <>
@@ -359,17 +437,31 @@ export default async function NationalTeamsIndexPage({
                         (countryRow?.flag_emoji as string | null) ??
                         (t.flag_emoji as string | null) ??
                         "🏳️";
+                      const worldCupStars = countSeasonsWithTrophySlug(
+                        t.trophies,
+                        "world_cup",
+                        trophyDefMap,
+                      );
                       return (
                         <tr key={t.id} className="border-t border-slate-100">
                           <td className="py-2.5 pr-3 font-mono text-slate-500">{i + 1}</td>
                           <td className="py-2.5 pr-3 font-semibold text-slate-900">
                             <Link
                               href={`/countries/${code}`}
-                              className="inline-flex items-center gap-2 hover:text-emerald-800 hover:underline"
+                              className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 hover:text-emerald-800 hover:underline"
                             >
-                              <span>{rowFlag}</span>
-                              {t.name}
+                              <span className="inline-flex shrink-0 items-center gap-2">
+                                <span>{rowFlag}</span>
+                                <span>{t.name}</span>
+                              </span>
+                              <TrophyTitleStars count={worldCupStars} label="FIFA World Cup titles" />
                             </Link>
+                          </td>
+                          <td className="py-2.5 pr-3 text-center align-middle">
+                            <FederationWcQualBadge
+                              confederation={t.confederation}
+                              nationalTeamId={t.id as string}
+                            />
                           </td>
                           <td className="py-2.5 pr-3 text-xs font-semibold uppercase text-slate-500">
                             {t.confederation}

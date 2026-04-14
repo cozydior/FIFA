@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PlayerMatchResult } from "@/lib/simEngine";
 import { progressInternationalCompetition } from "@/lib/international";
 
-const SLUGS = ["nations_league", "gold_cup", "world_cup"] as const;
+const SLUGS = ["nations_league", "gold_cup", "world_cup", "friendlies"] as const;
 type IntlSlug = (typeof SLUGS)[number];
 
 function isIntlSlug(s: string): s is IntlSlug {
@@ -69,7 +69,10 @@ export async function persistInternationalMatchdayResult(
   if (ue) throw new Error(ue.message);
 
   const mvMultiplier =
-    slug === "world_cup" ? 1.8 : slug === "nations_league" ? 1.35 : 1.2;
+    slug === "world_cup" ? 1.8
+    : slug === "nations_league" ? 1.35
+    : slug === "friendlies" ? 1.05
+    : 1.2;
 
   for (const p of args.players) {
     const fotMob = p.fotMob;
@@ -129,7 +132,9 @@ export async function persistInternationalMatchdayResult(
       .eq("id", p.id);
   }
 
-  await progressInternationalCompetition(supabase, seasonLabel, slug);
+  if (slug !== "friendlies") {
+    await progressInternationalCompetition(supabase, seasonLabel, slug);
+  }
 
   return { seasonLabel, slug };
 }

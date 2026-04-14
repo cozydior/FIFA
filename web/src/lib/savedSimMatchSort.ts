@@ -9,10 +9,24 @@ export type FixtureChronoMeta = {
   week: number | null;
   season_label?: string | null;
   sort_order?: number | null;
+  /** Used so same-week saved sims list cups above league when shown newest-first. */
+  competition?: string | null;
 };
 
 /**
- * Oldest calendar match first (season → week → sort_order → created_at).
+ * League (0) → regional cup (1) → Champions League (2) within the same week, ascending.
+ * With browse order = reverse(chronological), cup ties appear above league ties in the same week.
+ */
+function savedSimChronoCompetitionRank(competition: string | null | undefined): number {
+  const c = competition ?? "league";
+  if (c === "league") return 0;
+  if (c === "regional_cup") return 1;
+  if (c === "champions_league") return 2;
+  return 3;
+}
+
+/**
+ * Oldest calendar match first (season → week → competition class → sort_order → created_at).
  * Rows without a linked fixture sort after dated ones, by `created_at`.
  */
 export function sortSavedSimMatchesAsc<T extends SavedMatchRowChrono>(
@@ -31,6 +45,9 @@ export function sortSavedSimMatchesAsc<T extends SavedMatchRowChrono>(
     if (wa != null && wb != null && wa !== wb) return wa - wb;
     if (wa != null && wb == null) return -1;
     if (wa == null && wb != null) return 1;
+    const ra = savedSimChronoCompetitionRank(fa?.competition);
+    const rb = savedSimChronoCompetitionRank(fb?.competition);
+    if (ra !== rb) return ra - rb;
     const oa = fa?.sort_order ?? 0;
     const ob = fb?.sort_order ?? 0;
     if (oa !== ob) return oa - ob;

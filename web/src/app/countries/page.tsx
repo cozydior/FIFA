@@ -49,7 +49,7 @@ export default async function NationalTeamsIndexPage({
         )
         .eq("status", "completed"),
       supabase.from("seasons").select("label").order("created_at", { ascending: false }),
-      supabase.from("trophy_definitions").select("id, slug, name, icon_url, sort_order"),
+      supabase.from("trophy_definitions").select("id, slug, name, icon_url, sort_order, cabinet_scope"),
     ]);
 
   const trophyDefMap = definitionsBySlug((trophyDefs ?? []) as TrophyDefinitionRow[]);

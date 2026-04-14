@@ -23,6 +23,8 @@ export type TrophyDefinitionRow = {
   name: string;
   icon_url: string | null;
   sort_order: number;
+  /** Admin Trophy library: fixed honour order bucket, or "auto" to infer from text/slug. */
+  cabinet_scope?: string | null;
 };
 
 export function definitionsBySlug(
@@ -52,8 +54,8 @@ export function resolveTrophyDisplay(
 ): { label: string; iconUrl: string | null } {
   const fromCat = entry.trophy_slug ? defs.get(entry.trophy_slug) : undefined;
   const rawLabel =
-    (fromCat?.name && entry.trophy_slug ? fromCat.name : null) ??
     (typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : null) ??
+    (fromCat?.name && entry.trophy_slug ? fromCat.name : null) ??
     "Trophy";
   const label = formatLeagueNameForDisplay(rawLabel);
   const iconUrl =
@@ -77,8 +79,20 @@ export function parseTrophyList(raw: unknown): TrophyCabinetEntry[] {
   return [];
 }
 
+/** Same slug (e.g. domestic_league) must not merge England + France rows — each competition is its own chip. */
+function domesticLeagueCupGroupSuffix(e: TrophyCabinetEntry, index: number): string {
+  const name = (e.name ?? "").trim().toLowerCase();
+  const ww = (e.won_with ?? "").trim().toLowerCase();
+  const sig = [name, ww].filter(Boolean).join("|");
+  if (sig) return sig;
+  return `i:${index}`;
+}
+
 function trophyGroupKey(e: TrophyCabinetEntry, index: number): string {
   const slug = e.trophy_slug?.trim();
+  if (slug === "domestic_league" || slug === "domestic_cup") {
+    return `slug:${slug}:${domesticLeagueCupGroupSuffix(e, index)}`;
+  }
   if (slug) return `slug:${slug}`;
   const n = e.name?.trim();
   if (n) return `name:${n.toLowerCase()}`;
@@ -92,8 +106,11 @@ export function countSeasonsWithTrophySlug(
   defs: Map<string, TrophyDefinitionRow>,
 ): number {
   const grouped = groupTrophyCabinetEntries(parseTrophyList(raw), defs);
-  const hit = grouped.find((g) => g.entry.trophy_slug === slug);
-  return hit ? hit.seasons.length : 0;
+  let n = 0;
+  for (const g of grouped) {
+    if (g.entry.trophy_slug === slug) n += g.seasons.length;
+  }
+  return n;
 }
 
 /** Merge duplicate honours (same trophy won in multiple seasons) into one tile with all seasons listed. */
@@ -137,10 +154,6 @@ export function groupTrophyCabinetEntries(
       }
     }
   });
-  const defOrder = (slug: string | undefined) => {
-    if (!slug) return 999;
-    return defs.get(slug)?.sort_order ?? 999;
-  };
   return [...byKey.values()]
     .map(({ entry, details }) => ({
       entry,
@@ -148,14 +161,9 @@ export function groupTrophyCabinetEntries(
         a.season.localeCompare(b.season, undefined, { numeric: true }),
       ),
     }))
-    .sort((a, b) => {
-      const sa = a.entry.trophy_slug;
-      const sb = b.entry.trophy_slug;
-      const oa = defOrder(sa);
-      const ob = defOrder(sb);
-      if (oa !== ob) return oa - ob;
-      return resolveTrophyDisplay(a.entry, defs).label.localeCompare(
+    .sort((a, b) =>
+      resolveTrophyDisplay(a.entry, defs).label.localeCompare(
         resolveTrophyDisplay(b.entry, defs).label,
-      );
-    });
+      ),
+    );
 }

@@ -30,6 +30,7 @@ import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { EndOfSeasonChecklistSection } from "@/components/admin/EndOfSeasonChecklistSection";
 import { formatApplyWagesResponseMessage } from "@/lib/formatApplyWagesMessage";
 import { parseTrophyList, type TrophyCabinetEntry } from "@/lib/trophyCabinet";
+import { TROPHY_CABINET_SCOPES } from "@/lib/trophyCabinetScope";
 import { squadAnnualWageBill } from "@/lib/economy";
 
 type League = {
@@ -76,6 +77,7 @@ type TrophyDefRow = {
   name: string;
   icon_url: string | null;
   sort_order: number;
+  cabinet_scope?: string;
 };
 
 type HonourEditRow = {
@@ -3007,6 +3009,7 @@ function TrophyLibrarySection() {
   const [newName, setNewName] = useState("");
   const [newIcon, setNewIcon] = useState("");
   const [newSort, setNewSort] = useState("0");
+  const [newCabinetScope, setNewCabinetScope] = useState("auto");
   const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
@@ -3016,7 +3019,14 @@ function TrophyLibrarySection() {
       const res = await fetch("/api/admin/trophy-definitions");
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed");
-      setRows(Array.isArray(data) ? data : []);
+      setRows(
+        Array.isArray(data) ?
+          (data as TrophyDefRow[]).map((row) => ({
+            ...row,
+            cabinet_scope: row.cabinet_scope ?? "auto",
+          }))
+        : [],
+      );
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -3042,6 +3052,7 @@ function TrophyLibrarySection() {
           name: r.name.trim(),
           icon_url: r.icon_url?.trim() ? r.icon_url.trim() : null,
           sort_order: r.sort_order,
+          cabinet_scope: r.cabinet_scope ?? "auto",
         }),
       });
       const data = await res.json();
@@ -3082,6 +3093,7 @@ function TrophyLibrarySection() {
           name: newName.trim(),
           icon_url: newIcon.trim() || null,
           sort_order: parseInt(newSort, 10) || 0,
+          cabinet_scope: newCabinetScope,
         }),
       });
       const data = await res.json();
@@ -3091,6 +3103,7 @@ function TrophyLibrarySection() {
       setNewName("");
       setNewIcon("");
       setNewSort("0");
+      setNewCabinetScope("auto");
       await load();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Failed");
@@ -3113,7 +3126,10 @@ function TrophyLibrarySection() {
       </div>
       <p className="mb-4 text-sm text-zinc-600">
         Set a public image URL for each trophy type (PNG/SVG). Team and player honours resolve icons from here when you use the matching{" "}
-        <code className="rounded bg-zinc-100 px-1 font-mono text-xs">trophy_slug</code>.
+        <code className="rounded bg-zinc-100 px-1 font-mono text-xs">trophy_slug</code>.{" "}
+        <strong className="font-semibold text-zinc-800">Honour order</strong> fixes sort on team/player pages: leave{" "}
+        <em className="not-italic">Auto</em> for shared types like “Domestic league title”, or pick a country / tier / CL when you add a
+        competition-specific slug (e.g. FA Cup → England domestic cup; Ligue 1 → France top division).
       </p>
       {loading ?
         <p className="text-sm text-zinc-500">Loading…</p>
@@ -3163,6 +3179,20 @@ function TrophyLibrarySection() {
                     className="rounded-lg border border-zinc-300 bg-white px-3 py-2"
                   />
                 </label>
+                <label className="flex flex-col gap-1 sm:col-span-2">
+                  <span className="text-xs font-medium text-zinc-600">Honour order (club trophies)</span>
+                  <select
+                    value={r.cabinet_scope ?? "auto"}
+                    onChange={(e) => patchRow(r.id, { cabinet_scope: e.target.value })}
+                    className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
+                  >
+                    {TROPHY_CABINET_SCOPES.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
               <button
                 type="button"
@@ -3203,6 +3233,20 @@ function TrophyLibrarySection() {
             placeholder="Sort order"
             className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
           />
+          <label className="flex flex-col gap-1 sm:col-span-2">
+            <span className="text-xs font-medium text-zinc-600">Honour order (club trophies)</span>
+            <select
+              value={newCabinetScope}
+              onChange={(e) => setNewCabinetScope(e.target.value)}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
+            >
+              {TROPHY_CABINET_SCOPES.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         <button
           type="button"

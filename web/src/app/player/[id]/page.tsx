@@ -11,7 +11,7 @@ import {
   parseTrophyList,
   type TrophyDefinitionRow,
 } from "@/lib/trophyCabinet";
-import { ChevronDown, Trophy } from "lucide-react";
+import { ArrowRight, ChevronDown, Trophy } from "lucide-react";
 import { HonourCategoryBlock, HonourCabinetChips } from "@/components/HonourCabinetCompact";
 import {
   filterCabinetBySlugs,
@@ -27,7 +27,12 @@ import {
   txCategoryDisplay,
   type TeamMini,
 } from "@/lib/playerTransfers";
-import { parsePlayerNameFromTransferNote } from "@/lib/transferNotes";
+import {
+  parsePlayerNameFromTransferNote,
+  parseSellerClubNameFromBuyNote,
+} from "@/lib/transferNotes";
+import { TransferClubBadge } from "@/components/TransferClubBadge";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { formatMoneyPounds } from "@/lib/formatMoney";
 import { fotMobBadgeClass, marketTrendLabel } from "@/lib/fotMobBadge";
 import { priorSeasonLabel, priorSeasonMvForPlayerHistory } from "@/lib/mvSeasonTrend";
@@ -196,7 +201,7 @@ export default async function PlayerPage({
 
   const { data: trophyDefs } = await supabase
     .from("trophy_definitions")
-    .select("id, slug, name, icon_url, sort_order");
+    .select("id, slug, name, icon_url, sort_order, cabinet_scope");
   const defMap = definitionsBySlug(
     (trophyDefs ?? []) as TrophyDefinitionRow[],
   );
@@ -375,6 +380,8 @@ export default async function PlayerPage({
   );
 
   const transferRows = await fetchPlayerTransferTransactions(supabase, player.name);
+  /** Player page: show arrivals only (no mirror "sold" row from the selling club). */
+  const transferRowsForHistory = transferRows.filter((tx) => tx.category !== "transfer_out");
 
   const nameSet = new Set<string>();
   for (const r of transferRows) {
@@ -382,13 +389,30 @@ export default async function PlayerPage({
     if (n) nameSet.add(n);
   }
   const txPlayerIds = new Map<string, string>([[player.name, id]]);
+  const playerRoleByName = new Map<string, string>([[player.name, player.role ?? ""]]);
+  const playerPicByName = new Map<string, string | null>([
+    [player.name, (player.profile_pic_url as string | null) ?? null],
+  ]);
   if (nameSet.size > 0) {
     const { data: byNames } = await supabase
       .from("players")
-      .select("id, name")
+      .select("id, name, role, profile_pic_url")
       .in("name", [...nameSet]);
-    for (const p of byNames ?? []) txPlayerIds.set(p.name, p.id);
+    for (const p of byNames ?? []) {
+      txPlayerIds.set(p.name, p.id);
+      playerRoleByName.set(p.name, (p.role as string | null) ?? "");
+      playerPicByName.set(p.name, (p.profile_pic_url as string | null) ?? null);
+    }
   }
+
+  const { data: txTeamsLookup } =
+    transferRows.length > 0 ?
+      await supabase.from("teams").select("id, name, logo_url")
+    : { data: [] as { id: string; name: string; logo_url: string | null }[] };
+  const teamByLowerNameForTx = new Map(
+    (txTeamsLookup ?? []).map((t) => [t.name.trim().toLowerCase(), t]),
+  );
+  const teamByIdForTx = new Map((txTeamsLookup ?? []).map((t) => [t.id, t]));
 
   const insBySeason = transferInsBySeason(transferRows);
   const currentTeamMini: TeamMini | null =
@@ -734,7 +758,7 @@ export default async function PlayerPage({
         </section>
       )}
 
-      {transferRows.length > 0 && (
+      {transferRowsForHistory.length > 0 && (
         <details className="group mt-8 rounded-xl border border-slate-200 bg-white shadow-sm open:shadow-md">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
             <h2 className="text-xs font-bold uppercase tracking-widest text-slate-500">
@@ -742,52 +766,118 @@ export default async function PlayerPage({
             </h2>
             <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
           </summary>
-          <ul className="space-y-2 border-t border-slate-100 px-4 py-3">
-            {transferRows.map((tx) => {
-              const t = Array.isArray(tx.teams) ? tx.teams[0] : tx.teams;
+          <ul className="space-y-0 border-t border-slate-100">
+            {transferRowsForHistory.map((tx) => {
               const { label, colour } = txCategoryDisplay(tx.category);
+              const isStrictBuy = tx.category === "transfer_in";
+              const isFa = tx.category === "free_agent_pickup";
+              const isRelease = tx.category === "release";
+              const pname = parsePlayerNameFromTransferNote(tx.note);
+              const pid = pname ? txPlayerIds.get(pname) : undefined;
+              const ppic = pname ? (playerPicByName.get(pname) ?? null) : null;
+              const pr = pname ? playerRoleByName.get(pname) : undefined;
+              const sellerName = parseSellerClubNameFromBuyNote(tx.note);
+              const cpId = tx.counterparty_team_id;
+              const fromDb = cpId ? teamByIdForTx.get(cpId) : undefined;
+              const counter =
+                fromDb ?
+                  { name: fromDb.name as string, logo_url: (fromDb.logo_url as string | null) ?? null }
+                : isStrictBuy && sellerName ?
+                  teamByLowerNameForTx.get(sellerName.toLowerCase())
+                : null;
+              const bookRel = tx.teams as { name?: string; logo_url?: string | null } | null | undefined;
+              const bookTeam = Array.isArray(bookRel) ? bookRel[0] : bookRel;
+              const bookName = bookTeam?.name ?? "Club";
+              const bookLogo = (bookTeam?.logo_url as string | null) ?? null;
               const labelColour =
                 colour === "green" ? "font-semibold text-emerald-800"
                 : colour === "amber" ? "font-semibold text-amber-900"
                 : colour === "red" ? "font-semibold text-rose-700"
                 : "font-semibold text-slate-600";
-              const pid = parsePlayerNameFromTransferNote(tx.note);
-              const playerHref = pid ? txPlayerIds.get(pid) : undefined;
               return (
                 <li
                   key={tx.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm"
+                  className="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 text-sm transition last:border-b-0 hover:bg-emerald-50/40"
                 >
-                  <span className="flex min-w-0 flex-wrap items-center gap-2">
-                    {t?.logo_url ?
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={t.logo_url}
-                        alt=""
-                        className="h-8 w-8 shrink-0 rounded-md object-contain"
-                      />
-                    : null}
-                    <span className={labelColour}>{label}</span>
-                    <span className="text-slate-600">
-                      {t?.name ?
-                        <span className="font-semibold">{t.name}</span>
-                      : playerHref ?
-                        <Link href={`/player/${playerHref}`} className="font-semibold hover:underline">
-                          {pid}
-                        </Link>
-                      : <span className="font-semibold">{tx.note ?? "—"}</span>}
-                    </span>
-                  </span>
-                  <span className="font-mono text-xs text-slate-500">{tx.season_label}</span>
-                  <span
-                    className={
-                      Number(tx.amount) <= 0 ?
-                        "font-mono font-bold text-red-700"
-                      : "font-mono font-bold text-emerald-700"
-                    }
-                  >
-                    {formatMoneyPounds(Number(Math.abs(tx.amount)))}
-                  </span>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+                      <div className="flex shrink-0 items-center gap-2">
+                        {isStrictBuy ?
+                          <>
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span className="text-[0.6rem] font-bold uppercase tracking-wide text-slate-400">
+                                From
+                              </span>
+                              <TransferClubBadge
+                                name={counter?.name ?? "—"}
+                                logoUrl={counter?.logo_url ?? null}
+                              />
+                            </div>
+                            <ArrowRight className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span className="text-[0.6rem] font-bold uppercase tracking-wide text-slate-400">
+                                To
+                              </span>
+                              <TransferClubBadge name={bookName} logoUrl={bookLogo} />
+                            </div>
+                          </>
+                        : <>
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span className="text-[0.6rem] font-bold uppercase tracking-wide text-slate-400">
+                                Club
+                              </span>
+                              <TransferClubBadge name={bookName} logoUrl={bookLogo} />
+                            </div>
+                          </>
+                        }
+                      </div>
+                      <div className="min-w-0 flex flex-wrap items-center gap-2">
+                        {pname ?
+                          <PlayerAvatar name={pname} profilePicUrl={ppic} sizeClassName="h-9 w-9" />
+                        : null}
+                        <div className="min-w-0">
+                          <p className={labelColour}>{label}</p>
+                          <p className="text-xs text-slate-600">
+                            {isStrictBuy && counter ?
+                              <>Bought from <span className="font-semibold text-slate-800">{counter.name}</span></>
+                            : isStrictBuy ?
+                              <span className="text-slate-500">Incoming — other club not linked</span>
+                            : isFa ?
+                              "Signed as free agent"
+                            : isRelease ?
+                              "Released from squad"
+                            : null}
+                          </p>
+                          <p className="mt-0.5 flex flex-wrap items-center gap-2 text-slate-800">
+                            {pname ?
+                              pid ?
+                                <Link href={`/player/${pid}`} className="font-bold hover:underline">
+                                  {pname}
+                                </Link>
+                              : <span className="font-bold">{pname}</span>
+                            : (tx.note ?? tx.category)}
+                            {pname && pr && (pr === "ST" || pr === "GK") ?
+                              <span className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[0.65rem] font-bold text-slate-700">
+                                {pr}
+                              </span>
+                            : null}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-3 sm:flex-col sm:items-end sm:gap-1">
+                      <span className="font-mono text-xs text-slate-500">{tx.season_label}</span>
+                      <span
+                        className={
+                          Number(tx.amount) <= 0 ?
+                            "font-mono font-bold text-red-700"
+                          : "font-mono font-bold text-emerald-700"
+                        }
+                      >
+                        {formatMoneyPounds(Number(Math.abs(tx.amount)))}
+                      </span>
+                    </div>
+                  </div>
                 </li>
               );
             })}

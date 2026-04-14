@@ -14,6 +14,7 @@ import {
   clubFixtureWeekKind,
 } from "@/lib/matchCompetitionDisplay";
 import { parsePlayerNameFromTransferNote } from "@/lib/transferNotes";
+import { compareScheduledClubFixtures } from "@/lib/clubFixtureSort";
 
 export type DashboardUpcomingClub = {
   kind: "club";
@@ -38,8 +39,6 @@ export type DashboardUpcomingClub = {
   leagueCountry: string;
   /** League division for sorting (D1 / D2 / …) */
   leagueDivision: string;
-  /** Champions League: order group fixtures before knockouts within the same week */
-  clRoundOrder?: number;
 };
 
 export type DashboardUpcomingInternational = {
@@ -91,13 +90,15 @@ export async function getDashboardSummary(seasonOverride?: string) {
       supabase
         .from("fixtures")
         .select(
-          "id, league_id, home_team_id, away_team_id, home_score, away_score, status, week, season_label, competition, country, cup_round",
+          "id, league_id, home_team_id, away_team_id, home_score, away_score, status, week, season_label, competition, country, cup_round, sort_order",
         )
         .eq("season_label", season)
         .order("week"),
       supabase
         .from("team_transactions")
-        .select("id, amount, category, note, created_at, team_id, teams(logo_url, name)")
+        .select(
+          "id, amount, category, note, created_at, team_id, teams!team_transactions_team_id_fkey(logo_url, name)",
+        )
         .order("created_at", { ascending: false })
         .limit(12),
       supabase.from("countries").select("name, flag_emoji, code"),
@@ -203,31 +204,6 @@ export async function getDashboardSummary(seasonOverride?: string) {
     });
   }
 
-  const COUNTRY_PRIORITY: Record<string, number> = { England: 0, Spain: 1, France: 2 };
-  const DIVISION_PRIORITY: Record<string, number> = { D1: 0, D2: 1 };
-
-  function clubSortKey(c: DashboardUpcomingClub): number {
-    if (c.competition === "league") {
-      const cp = COUNTRY_PRIORITY[c.leagueCountry] ?? 3;
-      const dp = DIVISION_PRIORITY[c.leagueDivision] ?? 2;
-      // Per week: England D1, D2 → Spain D1, D2 → France D1, D2
-      return cp * 3 + dp;
-    }
-    if (c.competition === "regional_cup") return 20 + (COUNTRY_PRIORITY[c.leagueCountry] ?? 3);
-    if (c.competition === "champions_league") return 30;
-    return 40;
-  }
-
-  function championsLeagueRoundOrder(cupRound: string | null | undefined): number {
-    const r = cupRound ?? "";
-    if (r === "CL_GA") return 0;
-    if (r === "CL_GB") return 1;
-    if (r === "CL_SF1") return 2;
-    if (r === "CL_SF2") return 3;
-    if (r === "CL_F") return 4;
-    return 50;
-  }
-
   function includeScheduledClubFixture(f: {
     status: string;
     competition?: string | null;
@@ -249,58 +225,66 @@ export async function getDashboardSummary(seasonOverride?: string) {
   }
 
   const rawClub = (fixturesRaw ?? []).filter(includeScheduledClubFixture);
-  const clubUpcoming: DashboardUpcomingClub[] = rawClub
-    .map((f) => {
-      const home = teams?.find((t) => t.id === f.home_team_id);
-      const away = teams?.find((t) => t.id === f.away_team_id);
-      const comp = f.competition ?? "league";
-      const league = leagueById.get(f.league_id ?? "");
-      const disp = clubCompetitionDisplay(
-        {
-          competition: f.competition,
-          league_id: f.league_id,
-          country: f.country,
-          cup_round: f.cup_round,
-        },
-        leagueById,
-        flagByCountry,
-      );
-      return {
-        kind: "club" as const,
-        id: f.id,
-        week: f.week,
-        competition: comp,
-        homeTeamId: f.home_team_id,
-        awayTeamId: f.away_team_id,
-        homeName: home?.name ?? f.home_team_id,
-        awayName: away?.name ?? f.away_team_id,
-        competitionLabel: disp.competitionLabel,
-        leagueLogoUrl: disp.leagueLogoUrl,
-        countryFlagEmoji: disp.countryFlagEmoji,
-        useClBrand: disp.useClBrand,
-        weekLabel: formatFixtureCalendarLabel(f.week, clubFixtureWeekKind(comp)),
-        leagueCountry: league?.country ?? f.country ?? "",
-        leagueDivision: league?.division ?? "",
-        clRoundOrder:
-          comp === "champions_league" ? championsLeagueRoundOrder(f.cup_round) : undefined,
-      };
-    })
-    .sort((a, b) => {
-      if (a.week !== b.week) return a.week - b.week;
-      if (
-        a.competition === "champions_league" &&
-        b.competition === "champions_league" &&
-        a.clRoundOrder != null &&
-        b.clRoundOrder != null
-      ) {
-        const dr = a.clRoundOrder - b.clRoundOrder;
-        if (dr !== 0) return dr;
-        return a.id.localeCompare(b.id);
-      }
-      const ck = clubSortKey(a) - clubSortKey(b);
-      if (ck !== 0) return ck;
-      return a.id.localeCompare(b.id);
-    });
+  const leagueByIdSort = new Map<string, { country: string; division: string }>(
+    [...leagueById.entries()].map(([id, v]) => [id, { country: v.country, division: v.division }]),
+  );
+  type RawFx = (typeof rawClub)[number];
+  const rawClubSorted = [...rawClub].sort((a: RawFx, b: RawFx) =>
+    compareScheduledClubFixtures(
+      {
+        week: a.week,
+        competition: a.competition ?? "league",
+        league_id: a.league_id ?? null,
+        country: a.country ?? null,
+        cup_round: a.cup_round ?? null,
+        sort_order: (a as { sort_order?: number | null }).sort_order ?? null,
+        id: a.id,
+      },
+      {
+        week: b.week,
+        competition: b.competition ?? "league",
+        league_id: b.league_id ?? null,
+        country: b.country ?? null,
+        cup_round: b.cup_round ?? null,
+        sort_order: (b as { sort_order?: number | null }).sort_order ?? null,
+        id: b.id,
+      },
+      leagueByIdSort,
+    ),
+  );
+  const clubUpcoming: DashboardUpcomingClub[] = rawClubSorted.map((f) => {
+    const home = teams?.find((t) => t.id === f.home_team_id);
+    const away = teams?.find((t) => t.id === f.away_team_id);
+    const comp = f.competition ?? "league";
+    const league = leagueById.get(f.league_id ?? "");
+    const disp = clubCompetitionDisplay(
+      {
+        competition: f.competition,
+        league_id: f.league_id,
+        country: f.country,
+        cup_round: f.cup_round,
+      },
+      leagueById,
+      flagByCountry,
+    );
+    return {
+      kind: "club" as const,
+      id: f.id,
+      week: f.week,
+      competition: comp,
+      homeTeamId: f.home_team_id,
+      awayTeamId: f.away_team_id,
+      homeName: home?.name ?? f.home_team_id,
+      awayName: away?.name ?? f.away_team_id,
+      competitionLabel: disp.competitionLabel,
+      leagueLogoUrl: disp.leagueLogoUrl,
+      countryFlagEmoji: disp.countryFlagEmoji,
+      useClBrand: disp.useClBrand,
+      weekLabel: formatFixtureCalendarLabel(f.week, clubFixtureWeekKind(comp)),
+      leagueCountry: league?.country ?? f.country ?? "",
+      leagueDivision: league?.division ?? "",
+    };
+  });
 
   const { data: intlComps } = await supabase
     .from("international_competitions")

@@ -11,17 +11,24 @@ export async function recordTeamTransaction(
     note?: string;
     /** Insert the log row even when amount is 0 (e.g. release, zero-fee events). */
     alwaysLog?: boolean;
+    /** Other club (seller on buy, buyer on sale); optional. */
+    counterparty_team_id?: string | null;
   },
 ): Promise<void> {
   if (params.amount === 0 && !params.alwaysLog) return;
 
-  const { error } = await supabase.from("team_transactions").insert({
+  const row: Record<string, unknown> = {
     team_id: params.teamId,
     season_label: params.seasonLabel,
     amount: params.amount,
     category: params.category,
     note: params.note ?? null,
-  });
+  };
+  if (params.counterparty_team_id !== undefined) {
+    row.counterparty_team_id = params.counterparty_team_id;
+  }
+
+  const { error } = await supabase.from("team_transactions").insert(row);
   if (error) throw new Error(error.message);
 
   if (params.amount !== 0) {

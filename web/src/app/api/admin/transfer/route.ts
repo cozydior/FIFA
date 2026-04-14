@@ -79,6 +79,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Buyer team not found" }, { status: 404 });
     }
 
+    let sellerName: string | null = null;
+    if (fromTeamId) {
+      const { data: seller } = await supabase
+        .from("teams")
+        .select("name")
+        .eq("id", fromTeamId)
+        .maybeSingle();
+      sellerName = (seller?.name as string | undefined)?.trim() ?? null;
+    }
+
     if (fee > 0) {
       if (fromTeamId) {
         await recordTeamTransaction(supabase, {
@@ -87,6 +97,7 @@ export async function POST(req: Request) {
           amount: fee,
           category: "transfer_out",
           note: `Sale: ${player.name} → ${buyer.name}`,
+          counterparty_team_id: body.toTeamId.trim(),
         });
       }
       await recordTeamTransaction(supabase, {
@@ -94,9 +105,13 @@ export async function POST(req: Request) {
         seasonLabel,
         amount: -fee,
         category: "transfer_in",
-        note: fromTeamId
-          ? `Buy: ${player.name}`
+        note:
+          fromTeamId && sellerName ?
+            `Buy: ${player.name} from ${sellerName}`
+          : fromTeamId ?
+            `Buy: ${player.name}`
           : `Sign free agent: ${player.name}`,
+        counterparty_team_id: fromTeamId ?? null,
       });
     }
 

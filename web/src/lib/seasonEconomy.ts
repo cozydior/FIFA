@@ -44,6 +44,13 @@ export async function fetchLeagueStandingsForSeasonEnd(
 
   const standings: LeagueStandingRow[] = [];
 
+  const allLeagueTeamIds = new Set<string>();
+  const leagueWork: {
+    league: LeagueMeta;
+    rosterTeamIds: string[];
+    fx: FixtureRow[];
+  }[] = [];
+
   for (const L of leagues) {
     const { data: teams, error: te } = await supabase
       .from("teams")
@@ -65,7 +72,27 @@ export async function fetchLeagueStandingsForSeasonEnd(
     const fx = (fixtures ?? []) as FixtureRow[];
     const teamIds = unionRosterAndFixtureTeamIds(rosterTeamIds, fx);
     if (teamIds.length === 0) continue;
-    const rows = filterGhostZeroStandings(computeStandings(teamIds, fx));
+    for (const tid of teamIds) allLeagueTeamIds.add(tid);
+    leagueWork.push({ league: L, rosterTeamIds, fx });
+  }
+
+  const teamSavesAll = await fetchClubSeasonSavesByTeamIds(
+    supabase,
+    seasonLabel,
+    [...allLeagueTeamIds],
+  );
+
+  for (const { league: L, rosterTeamIds, fx } of leagueWork) {
+    const teamIds = unionRosterAndFixtureTeamIds(rosterTeamIds, fx);
+    if (teamIds.length === 0) continue;
+    const teamSaves: Record<string, number> = {};
+    for (const tid of teamIds) {
+      const v = teamSavesAll[tid];
+      if (v) teamSaves[tid] = v;
+    }
+    const rows = filterGhostZeroStandings(
+      computeStandings(teamIds, fx, { mode: "league", teamSaves }),
+    );
     rows.forEach((row, idx) => {
       standings.push({
         teamId: row.teamId,
@@ -91,15 +118,37 @@ export async function fetchClubSeasonSavesByTeamIds(
   const ids = [...new Set(teamIds)].filter(Boolean);
   if (ids.length === 0) return {};
 
-  const [{ data: players }, { data: statRows }] = await Promise.all([
-    supabase.from("players").select("id, team_id").in("team_id", ids),
-    supabase.from("stats").select("player_id, saves").eq("season", seasonLabel),
-  ]);
+  const { data: statRows } = await supabase
+    .from("stats")
+    .select("player_id, team_id, saves")
+    .eq("season", seasonLabel);
 
-  const teamByPlayer = new Map((players ?? []).map((p) => [p.id, p.team_id]));
   const acc: Record<string, number> = {};
+  const legacyPlayerIds = new Set<string>();
+
   for (const s of statRows ?? []) {
-    const tid = teamByPlayer.get(s.player_id);
+    const saves = Number(s.saves ?? 0);
+    const rowTid = (s.team_id as string | null) ?? null;
+    if (rowTid && ids.includes(rowTid)) {
+      acc[rowTid] = (acc[rowTid] ?? 0) + saves;
+    } else if (!rowTid) {
+      legacyPlayerIds.add(s.player_id as string);
+    }
+  }
+
+  if (legacyPlayerIds.size === 0) return acc;
+
+  const { data: roster } = await supabase
+    .from("players")
+    .select("id, team_id")
+    .in("id", [...legacyPlayerIds]);
+
+  const currentTeamByPlayer = new Map(
+    (roster ?? []).map((p) => [p.id as string, p.team_id as string | null]),
+  );
+  for (const s of statRows ?? []) {
+    if ((s.team_id as string | null) != null) continue;
+    const tid = currentTeamByPlayer.get(s.player_id as string);
     if (!tid || !ids.includes(tid)) continue;
     acc[tid] = (acc[tid] ?? 0) + Number(s.saves ?? 0);
   }

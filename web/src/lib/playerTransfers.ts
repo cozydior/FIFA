@@ -10,7 +10,11 @@ export type PlayerTransferTxRow = {
   category: string;
   note: string | null;
   created_at: string;
+  counterparty_team_id?: string | null;
+  /** Club whose ledger this row is on (FK team_id). */
   teams: TeamMini | TeamMini[] | null;
+  /** Other club when set (seller/buyer). */
+  counterparty?: TeamMini | TeamMini[] | null;
 };
 
 /** Transfer / movement rows mentioning this player (club books). */
@@ -21,7 +25,9 @@ export async function fetchPlayerTransferTransactions(
   const safe = playerName.replace(/%/g, "\\%").replace(/_/g, "\\_");
   const { data, error } = await supabase
     .from("team_transactions")
-    .select("id, team_id, season_label, amount, category, note, created_at, teams(id, name, logo_url)")
+    .select(
+      "id, team_id, season_label, amount, category, note, created_at, counterparty_team_id, teams!team_transactions_team_id_fkey(id, name, logo_url), counterparty:teams!team_transactions_counterparty_team_id_fkey(id, name, logo_url)",
+    )
     .ilike("note", `%${safe}%`)
     .in("category", ["transfer_in", "transfer_out", "release", "free_agent_pickup"])
     .order("created_at", { ascending: false })
@@ -40,7 +46,7 @@ export function txCategoryDisplay(category: string): {
     case "transfer_in":
       return { label: "Bought", colour: "green" };
     case "transfer_out":
-      return { label: "Sold", colour: "amber" };
+      return { label: "Sold", colour: "red" };
     case "free_agent_pickup":
       return { label: "Picked up (FA)", colour: "green" };
     case "release":

@@ -342,7 +342,7 @@ export default async function CountryPage({
 
   const { data: trophyDefs } = await supabase
     .from("trophy_definitions")
-    .select("id, slug, name, icon_url, sort_order");
+    .select("id, slug, name, icon_url, sort_order, cabinet_scope");
   const defMap = definitionsBySlug((trophyDefs ?? []) as TrophyDefinitionRow[]);
   const ntCabinet = nt
     ? sortCabinetGroups(

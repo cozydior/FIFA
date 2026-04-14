@@ -4,15 +4,16 @@ import type {
   TrophySeasonDetail,
 } from "@/lib/trophyCabinet";
 import { resolveTrophyDisplay } from "@/lib/trophyCabinet";
+import { cabinetScopeToSortKey } from "@/lib/trophyCabinetScope";
 
 export type GroupedCabinet = {
   entry: TrophyCabinetEntry;
   seasons: TrophySeasonDetail[];
 };
 
-/** D1 vs D2 from league name / won_with (demo leagues). */
-export function leagueTierFromWonWith(wonWith: string | undefined): 1 | 2 {
-  const s = (wonWith ?? "").toLowerCase();
+/** D1 vs D2 from league / club / trophy label text (demo leagues). */
+export function leagueTierFromHonourContext(context: string | undefined): 1 | 2 {
+  const s = (context ?? "").toLowerCase();
   if (
     /championship|segunda|ligue 2|second tier|division 2|\bd2\b/.test(s) &&
     !/premier|la liga|ligue 1/.test(s)
@@ -22,22 +23,109 @@ export function leagueTierFromWonWith(wonWith: string | undefined): 1 | 2 {
   return 1;
 }
 
-/** England → Spain → France → other, inferred from text. */
-export function inferRegionOrder(wonWith: string | undefined): number {
-  const s = (wonWith ?? "").toLowerCase();
-  if (/premier|championship|england|\befl\b/.test(s)) return 0;
-  if (/la liga|segunda|spain/.test(s)) return 1;
-  if (/ligue|france/.test(s)) return 2;
+/** @deprecated Use leagueTierFromHonourContext — kept for call sites that only have won_with. */
+export function leagueTierFromWonWith(wonWith: string | undefined): 1 | 2 {
+  return leagueTierFromHonourContext(wonWith);
+}
+
+/**
+ * England → Spain → France → other, from won_with plus trophy label (e.g. "Premier League" when won_with is only a club).
+ */
+export function inferRegionOrderFromContext(context: string | undefined): number {
+  const s = (context ?? "").toLowerCase();
+  if (/premier|championship|england|\befl\b|wembley|fa cup|efl/.test(s)) return 0;
+  if (/la liga|segunda|spain|copa del rey/.test(s)) return 1;
+  if (/ligue|france|coupe de france/.test(s)) return 2;
+  // Rows often only store a club name + generic "Domestic league title" — infer region from well-known clubs.
+  if (
+    /\b(manchester|liverpool|chelsea|arsenal|tottenham|everton|newcastle|leeds|leicester|fulham|brighton|bournemouth|burnley|wolves|brentford|ipswich|southampton|west ham|crystal palace|aston villa|sheffield|nottingham|watford|norwich|reading|stoke|swansea|cardiff|huddersfield|blackburn|wigan|bolton|middlesbrough|sunderland)\b/.test(
+      s,
+    )
+  )
+    return 0;
+  if (
+    /\b(real madrid|barcelona|atletico|atlético|sevilla|valencia|villarreal|athletic|sociedad|betis|girona|celta|osasuna|mallorca|getafe|alav[eé]s|rayo|espanyol|granada|las palmas|legan[eé]s|eibar|valladolid)\b/.test(
+      s,
+    )
+  )
+    return 1;
+  if (
+    /\b(lyon|marseille|monaco|lille|rennes|toulouse|nice|strasbourg|nantes|lens|reims|montpellier|bordeaux|angers|metz|le havre|brest|dijon|n[iî]mes|saint-[ée]tienne|toulon|guingamp|lorient|clermont|auxerre)\b/.test(
+      s,
+    )
+  )
+    return 2;
   return 3;
 }
 
-function sortKeyTeam(entry: TrophyCabinetEntry): number {
+/** @deprecated Use inferRegionOrderFromContext */
+export function inferRegionOrder(wonWith: string | undefined): number {
+  return inferRegionOrderFromContext(wonWith);
+}
+
+/**
+ * Legacy rows often omit trophy_slug; tie-break was label A–Z so "Coupe de France"
+ * sorted before "Ligue 1". Infer league vs cup from free text when slug is empty.
+ */
+function inferLeagueCupKindForSort(blob: string): "league" | "cup" | null {
+  const s = blob.toLowerCase();
+  if (
+    /\bcoupe de france\b|\bcopa del rey\b|\bfa cup\b|\bcarabao\b|\befl cup\b|\bcoupe de la ligue\b|\bleague cup\b|\btroph[eé]e des champions\b|\bsupercopa\b/.test(
+      s,
+    )
+  ) {
+    return "cup";
+  }
+  if (
+    /\bligue\s*1\b|\bligue\s*2\b|\bpremier league\b|\bla liga\b|\bsegunda\b|\bchampionship\b|\bleague one\b|\bundesliga\b|\bserie a\b|\beredivisie\b/.test(
+      s,
+    )
+  ) {
+    return "league";
+  }
+  return null;
+}
+
+function honourClubCompetitionSortKeyRaw(
+  entry: TrophyCabinetEntry,
+  defMap: Map<string, TrophyDefinitionRow>,
+): number | null {
   const slug = entry.trophy_slug?.trim() ?? "";
-  const ww = entry.won_with ?? "";
+  const def = slug ? defMap.get(slug) : undefined;
+  const fromScope = cabinetScopeToSortKey(def?.cabinet_scope);
+  if (fromScope !== null) return fromScope;
+
+  const label = resolveTrophyDisplay(entry, defMap).label;
+  const blob = `${(entry.name ?? "").trim()} ${(entry.won_with ?? "").trim()} ${label}`.trim();
   if (slug === "champions_league") return 0;
-  if (slug === "domestic_cup") return 10;
-  if (slug === "domestic_league") return 20 + leagueTierFromWonWith(ww);
-  return 500;
+
+  let domKind: "league" | "cup" | null = null;
+  if (slug === "domestic_league") domKind = "league";
+  else if (slug === "domestic_cup") domKind = "cup";
+  else if (!slug) domKind = inferLeagueCupKindForSort(blob);
+
+  if (domKind) {
+    const region = inferRegionOrderFromContext(blob);
+    const base = 10 + region * 100;
+    if (domKind === "league") {
+      const tier = leagueTierFromHonourContext(blob);
+      return base + (tier === 1 ? 0 : 20);
+    }
+    return base + 10;
+  }
+  return null;
+}
+
+/** CL → per country D1 → regional cup → D2; unknown club rows default to 800. */
+export function honourClubCompetitionSortKey(
+  entry: TrophyCabinetEntry,
+  defMap: Map<string, TrophyDefinitionRow>,
+): number {
+  return honourClubCompetitionSortKeyRaw(entry, defMap) ?? 800;
+}
+
+function sortKeyTeam(entry: TrophyCabinetEntry, defMap: Map<string, TrophyDefinitionRow>): number {
+  return honourClubCompetitionSortKeyRaw(entry, defMap) ?? 500;
 }
 
 function sortKeyCountry(entry: TrophyCabinetEntry): number {
@@ -48,18 +136,12 @@ function sortKeyCountry(entry: TrophyCabinetEntry): number {
   return 500;
 }
 
-/** Player club row: CL, then by region (England, Spain, France), cup then D1 then D2. */
-function sortKeyPlayerClub(entry: TrophyCabinetEntry): number {
-  const slug = entry.trophy_slug?.trim() ?? "";
-  const ww = entry.won_with ?? "";
-  if (slug === "champions_league") return 0;
-  const region = inferRegionOrder(ww);
-  if (slug === "domestic_cup") return 100 + region * 30 + 0;
-  if (slug === "domestic_league") {
-    const tier = leagueTierFromWonWith(ww);
-    return 100 + region * 30 + tier;
-  }
-  return 800;
+/** Player club row: CL, then per region (England, Spain, France) D1 → regional cup → D2. */
+function sortKeyPlayerClub(
+  entry: TrophyCabinetEntry,
+  defMap: Map<string, TrophyDefinitionRow>,
+): number {
+  return honourClubCompetitionSortKeyRaw(entry, defMap) ?? 800;
 }
 
 function sortKeyPersonal(entry: TrophyCabinetEntry): number {
@@ -81,15 +163,22 @@ export function sortCabinetGroups(
   mode: CabinetSortMode,
   defMap: Map<string, TrophyDefinitionRow>,
 ): GroupedCabinet[] {
-  const keyFn =
-    mode === "team" ? sortKeyTeam
-    : mode === "country" || mode === "player_intl" ? sortKeyCountry
-    : mode === "player_club" ? sortKeyPlayerClub
-    : sortKeyPersonal;
-
   return [...groups].sort((a, b) => {
-    const ka = keyFn(a.entry);
-    const kb = keyFn(b.entry);
+    let ka: number;
+    let kb: number;
+    if (mode === "player_club") {
+      ka = sortKeyPlayerClub(a.entry, defMap);
+      kb = sortKeyPlayerClub(b.entry, defMap);
+    } else if (mode === "team") {
+      ka = sortKeyTeam(a.entry, defMap);
+      kb = sortKeyTeam(b.entry, defMap);
+    } else if (mode === "country" || mode === "player_intl") {
+      ka = sortKeyCountry(a.entry);
+      kb = sortKeyCountry(b.entry);
+    } else {
+      ka = sortKeyPersonal(a.entry);
+      kb = sortKeyPersonal(b.entry);
+    }
     if (ka !== kb) return ka - kb;
     return resolveTrophyDisplay(a.entry, defMap).label.localeCompare(
       resolveTrophyDisplay(b.entry, defMap).label,

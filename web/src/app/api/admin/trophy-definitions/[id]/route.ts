@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { normalizeCabinetScope } from "@/lib/trophyCabinetScope";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -10,6 +11,7 @@ export async function PATCH(req: Request, { params }: Params) {
       name?: string;
       icon_url?: string | null;
       sort_order?: number;
+      cabinet_scope?: string | null;
     };
     const updates: Record<string, unknown> = {};
     if (typeof body.name === "string" && body.name.trim()) updates.name = body.name.trim();
@@ -22,6 +24,9 @@ export async function PATCH(req: Request, { params }: Params) {
     if (typeof body.sort_order === "number" && !Number.isNaN(body.sort_order)) {
       updates.sort_order = body.sort_order;
     }
+    if (body.cabinet_scope !== undefined) {
+      updates.cabinet_scope = normalizeCabinetScope(body.cabinet_scope);
+    }
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "No valid fields" }, { status: 400 });
     }
@@ -30,7 +35,7 @@ export async function PATCH(req: Request, { params }: Params) {
       .from("trophy_definitions")
       .update(updates)
       .eq("id", id)
-      .select("id, slug, name, icon_url, sort_order")
+      .select("id, slug, name, icon_url, sort_order, cabinet_scope")
       .single();
     if (error) throw error;
     return NextResponse.json(data);

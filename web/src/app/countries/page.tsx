@@ -448,7 +448,7 @@ export default async function NationalTeamsIndexPage({
                           <td className="py-2.5 pr-3 font-semibold text-slate-900">
                             <Link
                               href={`/countries/${code}`}
-                              className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 hover:text-emerald-800 hover:underline"
+                              className="inline-flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 hover:text-emerald-800 hover:underline"
                             >
                               <span className="inline-flex shrink-0 items-center gap-2">
                                 <span>{rowFlag}</span>

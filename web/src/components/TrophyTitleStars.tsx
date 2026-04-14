@@ -20,7 +20,7 @@ export function TrophyTitleStars({
   const starClass = STAR_SIZE[size];
   const wrapClass =
     size === "compact" ?
-      "ml-1 inline-flex select-none items-center gap-px self-center sm:ml-1.5 sm:gap-0.5"
+      "inline-flex select-none items-center gap-px self-center sm:gap-0.5"
     : "ml-2 inline-flex select-none items-center gap-0.5 align-middle";
 
   return (

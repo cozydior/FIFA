@@ -454,7 +454,11 @@ export default async function NationalTeamsIndexPage({
                                 <span>{rowFlag}</span>
                                 <span>{t.name}</span>
                               </span>
-                              <TrophyTitleStars count={worldCupStars} label="FIFA World Cup titles" />
+                              <TrophyTitleStars
+                                count={worldCupStars}
+                                label="FIFA World Cup titles"
+                                size="compact"
+                              />
                             </Link>
                           </td>
                           <td className="py-2.5 pr-3 text-center align-middle">

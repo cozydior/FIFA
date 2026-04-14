@@ -621,7 +621,7 @@ export default async function PlayerPage({
               )}
               {player.role !== "ST" && (
                 <div className="flex items-center justify-between gap-4 border-b border-emerald-100/80 pb-3 sm:border-0 sm:pb-0">
-                  <dt className="text-sm font-medium text-emerald-900/90">Saves (season)</dt>
+                  <dt className="text-sm font-medium text-emerald-900/90">Saves</dt>
                   <dd className="font-mono text-2xl font-black text-emerald-950">
                     {seasonRow?.saves ?? 0}
                   </dd>
@@ -650,7 +650,7 @@ export default async function PlayerPage({
             </dl>
             <div className="mt-5 border-t border-emerald-100/90 pt-4">
               <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Career league totals
+                Career totals
               </p>
               <div className="mt-3 flex flex-wrap gap-6">
                 {player.role !== "GK" && (
@@ -666,7 +666,7 @@ export default async function PlayerPage({
                       <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Total goals
                       </span>
-                      <span className="text-[0.65rem] font-medium text-slate-400">League + international</span>
+                      <span className="text-[0.65rem] font-medium text-slate-400">League + International</span>
                     </div>
                   </>
                 )}
@@ -683,7 +683,7 @@ export default async function PlayerPage({
                       <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Total saves
                       </span>
-                      <span className="text-[0.65rem] font-medium text-slate-400">League + international</span>
+                      <span className="text-[0.65rem] font-medium text-slate-400">League + International</span>
                     </div>
                   </>
                 )}
@@ -872,19 +872,21 @@ export default async function PlayerPage({
         >
           <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
             <p className="text-xs uppercase tracking-wide text-slate-500">
-              Shots (international)
+              {player.role === "GK" ? "Shots faced" : player.role === "ST" ? "Shots" : "Shots (international)"}
             </p>
             <p className="mt-1 text-2xl font-black text-slate-900">{intlShotsDisplay}</p>
           </div>
           {player.role !== "GK" && (
             <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
-              <p className="text-xs uppercase tracking-wide text-slate-500">Goals for country</p>
+              <p className="text-xs uppercase tracking-wide text-slate-500">
+                {player.role === "ST" ? "Goals" : "Goals for country"}
+              </p>
               <p className="mt-1 text-2xl font-black text-slate-900">{intlGoals}</p>
             </div>
           )}
           {player.role !== "ST" && (
             <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm">
-              <p className="text-xs uppercase tracking-wide text-slate-500">Saves for country</p>
+              <p className="text-xs uppercase tracking-wide text-slate-500">Saves</p>
               <p className="mt-1 text-2xl font-black text-slate-900">{intlSaves}</p>
             </div>
           )}
@@ -896,7 +898,9 @@ export default async function PlayerPage({
                 <tr className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                   <th className="px-4 py-2">Season</th>
                   <th className="px-4 py-2">Competition</th>
-                  <th className="px-4 py-2 text-right">Shots</th>
+                  <th className="px-4 py-2 text-right">
+                    {player.role === "GK" ? "Shots faced" : "Shots"}
+                  </th>
                   {player.role !== "GK" ?
                     <th className="px-4 py-2 text-right">Goals</th>
                   : null}

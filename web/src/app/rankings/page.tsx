@@ -33,6 +33,7 @@ function parseScope(v: string | undefined): RankingsStatScope {
   const allowed: RankingsStatScope[] = [
     "career",
     "season",
+    "international",
     "world_cup",
     "nations_league",
     "gold_cup",
@@ -78,6 +79,9 @@ function statColumnSortKey(
   if (scope === "season") {
     return role === "GK" ? "season_saves" : "season_goals";
   }
+  if (scope === "international") {
+    return role === "GK" ? "scope_saves" : "scope_goals";
+  }
   return role === "GK" ? "scope_saves" : "scope_goals";
 }
 
@@ -119,13 +123,6 @@ export default async function RankingsPage({
     if (freeAgentsOnly) p.set("free", "1");
     if (includeFreeAgents) p.set("include_free", "1");
     return p;
-  }
-
-  function rosterViewHref(showFree: boolean): string {
-    const p = playersFiltersParams();
-    if (showFree) p.set("include_free", "1");
-    else p.delete("include_free");
-    return `/rankings?${p.toString()}`;
   }
 
   const supabase = getSupabaseAdmin();
@@ -180,19 +177,24 @@ export default async function RankingsPage({
   const scopeNote =
     scope === "champions_league_proxy"
       ? "Uses domestic season stats as a proxy (per-player CL stats are not tracked separately yet)."
-      : null;
+    : scope === "international"
+      ? "All international caps ledger rows (every competition in the DB)."
+    : null;
 
   const statHead =
     role === "GK" ?
       scope === "career" ? "Saves"
-      : scope === "season" ? "Saves (season)"
+      : scope === "season" ? "Saves"
+      : scope === "international" ? "Saves"
       : "Saves"
     : role === "ST" ?
       scope === "career" ? "Goals"
-      : scope === "season" ? "Goals (season)"
+      : scope === "season" ? "Goals"
+      : scope === "international" ? "Goals"
       : "Goals"
     : scope === "career" ? "Goals / saves"
-    : scope === "season" ? "Goals / saves (season)"
+    : scope === "season" ? "Goals / saves"
+    : scope === "international" ? "Goals / saves"
     : "Goals / saves";
 
   const statSortKey = statColumnSortKey(role, scope);
@@ -321,6 +323,7 @@ export default async function RankingsPage({
             >
               <option value="career">Full career (domestic + international)</option>
               <option value="season">Domestic season</option>
+              <option value="international">International (all caps)</option>
               <option value="world_cup">World Cup (intl)</option>
               <option value="nations_league">Nations League (intl)</option>
               <option value="gold_cup">Gold Cup (intl)</option>
@@ -396,66 +399,6 @@ export default async function RankingsPage({
         )}
       </form>
       : null}
-
-      {tab === "players" && seasonLabel && !freeAgentsOnly && (
-        <p className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600">
-          <span className="font-bold uppercase tracking-wide text-slate-500">Roster</span>
-          <Link
-            href={rosterViewHref(false)}
-            className={
-              !includeFreeAgents ?
-                "rounded-md bg-slate-900 px-2 py-1 font-semibold text-white"
-              : "rounded-md px-2 py-1 font-semibold text-emerald-800 hover:bg-emerald-50 hover:underline"
-            }
-          >
-            Club players
-            {!includeFreeAgents ?
-              <span className="ml-0.5 text-[0.65rem] font-normal opacity-80">(default)</span>
-            : null}
-          </Link>
-          <Link
-            href={rosterViewHref(true)}
-            className={
-              includeFreeAgents ?
-                "rounded-md bg-slate-900 px-2 py-1 font-semibold text-white"
-              : "rounded-md px-2 py-1 font-semibold text-emerald-800 hover:bg-emerald-50 hover:underline"
-            }
-          >
-            + Free agents
-          </Link>
-        </p>
-      )}
-
-      {tab === "players" && seasonLabel && (
-        <p className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600">
-          <span className="font-bold uppercase tracking-wide text-slate-500">Intl sort</span>
-          {(
-            [
-              ["intl_caps", "Caps"],
-              ["intl_goals", "Goals"],
-              ["intl_saves", "Saves"],
-            ] as const
-          ).map(([key, label]) => (
-            <Link
-              key={key}
-              href={playersSortHref(key)}
-              className={
-                sort === key ?
-                  "rounded-md bg-slate-900 px-2 py-1 font-semibold text-white"
-                : "rounded-md px-2 py-1 font-semibold text-emerald-800 hover:bg-emerald-50 hover:underline"
-              }
-              title="Click to sort; click again to reverse"
-            >
-              {label}
-              {sort === key ?
-                <span className="ml-0.5 text-[0.65rem] font-normal opacity-80">
-                  {sortDir === "desc" ? "↓" : "↑"}
-                </span>
-              : null}
-            </Link>
-          ))}
-        </p>
-      )}
 
       {loadError && (
         <div className="mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
@@ -780,7 +723,15 @@ export default async function RankingsPage({
           </li>
           <li>
             <strong className="font-semibold text-slate-800">Avg</strong> uses season averages when
-            scope is domestic season / CL proxy; otherwise it is a career-weighted domestic average.
+            scope is domestic season / CL proxy; caps-weighted international averages when scope is{" "}
+            <strong className="font-semibold text-slate-800">International (all caps)</strong>;
+            otherwise it is a career-weighted domestic average.
+          </li>
+          <li>
+            <strong className="font-semibold text-slate-800">Domestic season</strong> goals/saves sum
+            every <code className="rounded bg-slate-100 px-1 font-mono text-xs">stats</code> row for the
+            current season label (case-insensitive); multiple rows for the same player and season are
+            added together.
           </li>
           <li>
             International tournaments use the international stats ledger (caps/goals/saves). The main stat column for

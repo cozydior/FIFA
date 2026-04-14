@@ -6,10 +6,30 @@ export type RankingsRoleFilter = "ST" | "GK" | "all";
 export type RankingsStatScope =
   | "career"
   | "season"
+  | "international"
   | "world_cup"
   | "nations_league"
   | "gold_cup"
   | "champions_league_proxy";
+
+/** Case/whitespace-insensitive match for `stats.season` vs app season label. */
+function seasonLabelMatches(rowSeason: string, targetSeason: string): boolean {
+  return rowSeason.trim().toLowerCase() === targetSeason.trim().toLowerCase();
+}
+
+function intlCapsWeightedAvgRating(
+  rows: { caps: number | null; average_rating: number | null }[],
+): number {
+  let sum = 0;
+  let caps = 0;
+  for (const r of rows) {
+    const c = Number(r.caps ?? 0);
+    if (c <= 0 || r.average_rating == null) continue;
+    sum += Number(r.average_rating) * c;
+    caps += c;
+  }
+  return caps > 0 ? sum / caps : 0;
+}
 
 export type RankingsSortDir = "asc" | "desc";
 
@@ -103,7 +123,9 @@ export async function fetchRankingsRows(opts: {
       supabase.from("stats").select("player_id, season, goals, saves, appearances, average_rating"),
       supabase
         .from("player_international_stats")
-        .select("player_id, season_label, competition_slug, caps, goals_for_country, saves_for_country"),
+        .select(
+          "player_id, season_label, competition_slug, caps, goals_for_country, saves_for_country, average_rating",
+        ),
       supabase.from("countries").select("name, flag_emoji, code"),
     ]);
 
@@ -147,15 +169,24 @@ export async function fetchRankingsRows(opts: {
     if (s.season) b.seasons.add(s.season);
   }
 
-  const seasonStats = new Map<string, { goals: number; saves: number; avg: number | null }>();
+  const seasonStats = new Map<
+    string,
+    { goals: number; saves: number; ratingSum: number; ratingApps: number }
+  >();
   for (const s of statsRows ?? []) {
-    if (s.season !== opts.seasonLabel) continue;
+    if (!seasonLabelMatches(String(s.season ?? ""), opts.seasonLabel)) continue;
     const pid = s.player_id as string;
-    seasonStats.set(pid, {
-      goals: Number(s.goals ?? 0),
-      saves: Number(s.saves ?? 0),
-      avg: s.average_rating == null ? null : Number(s.average_rating),
-    });
+    const g = Number(s.goals ?? 0);
+    const sv = Number(s.saves ?? 0);
+    const apps = Number(s.appearances ?? 0);
+    const cur = seasonStats.get(pid) ?? { goals: 0, saves: 0, ratingSum: 0, ratingApps: 0 };
+    cur.goals += g;
+    cur.saves += sv;
+    if (s.average_rating != null && apps > 0) {
+      cur.ratingSum += Number(s.average_rating) * apps;
+      cur.ratingApps += apps;
+    }
+    seasonStats.set(pid, cur);
   }
 
   const intlByPlayer = new Map<string, typeof intlRows>();
@@ -219,7 +250,16 @@ export async function fetchRankingsRows(opts: {
     }
 
     const agg = byPlayerStats.get(p.id) ?? { goals: 0, saves: 0, apps: 0, seasons: new Set() };
-    const ss = seasonStats.get(p.id) ?? { goals: 0, saves: 0, avg: null };
+    const ssRaw = seasonStats.get(p.id);
+    const ss = ssRaw
+      ? {
+          goals: ssRaw.goals,
+          saves: ssRaw.saves,
+          avg:
+            ssRaw.ratingApps > 0 ? ssRaw.ratingSum / ssRaw.ratingApps
+            : null,
+        }
+      : { goals: 0, saves: 0, avg: null as number | null };
     const intlList = intlByPlayer.get(p.id) ?? [];
 
     let intl_caps = 0;
@@ -254,11 +294,16 @@ export async function fetchRankingsRows(opts: {
     } else if (opts.statScope === "champions_league_proxy") {
       scope_goals = ss.goals;
       scope_saves = ss.saves;
+    } else if (opts.statScope === "international") {
+      scope_goals = intl_goals;
+      scope_saves = intl_saves;
     }
 
     const sort_rating =
       opts.statScope === "season" || opts.statScope === "champions_league_proxy"
         ? (ss.avg ?? 0)
+      : opts.statScope === "international"
+        ? intlCapsWeightedAvgRating(intlList)
         : (() => {
             let sum = 0;
             let n = 0;

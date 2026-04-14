@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { countryCodeToFlagEmoji } from "@/lib/flags";
 import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
-import { RankNumberBubble, RANK_ROW_LABEL_CLASS } from "@/components/RankNumberBubble";
+import { RankNumberBubble, RankTbdBubble, RANK_ROW_LABEL_CLASS } from "@/components/RankNumberBubble";
 import {
   Check,
   ChevronDown,
@@ -17,6 +17,8 @@ import { CompetitionBrandLogo } from "@/components/CompetitionBrandLogo";
 import { AetScoreLine } from "@/components/AetScoreLine";
 import { fetchNationalTournamentHistory } from "@/lib/nationalTournamentHistory";
 import { formatMoneyPounds } from "@/lib/formatMoney";
+import { marketTrendLabel } from "@/lib/fotMobBadge";
+import { priorSeasonMvByPlayer } from "@/lib/mvSeasonTrend";
 import {
   countSeasonsWithTrophySlug,
   definitionsBySlug,
@@ -46,7 +48,44 @@ type EligiblePoolPlayer = {
   teams?: { id: string; name: string; logo_url: string | null } | { id: string; name: string; logo_url: string | null }[] | null;
 };
 
-function EligiblePlayerRow({ pl }: { pl: EligiblePoolPlayer }) {
+function NtPlayerMvWithTrend({
+  playerId,
+  marketValue,
+  mvPriorByPlayer,
+}: {
+  playerId: string;
+  marketValue: number;
+  mvPriorByPlayer: Map<string, number | null>;
+}) {
+  const prior = mvPriorByPlayer.get(playerId) ?? null;
+  const mvTrend = marketTrendLabel(prior, marketValue);
+  return (
+    <span className="flex flex-col items-end gap-0.5">
+      <span className="font-mono text-slate-800">{formatMoneyPounds(marketValue)}</span>
+      <span
+        className={
+          mvTrend === "—" ? "text-[0.65rem] text-slate-400"
+          : mvTrend.startsWith("↑") ? "text-[0.65rem] font-semibold text-emerald-700"
+          : mvTrend.startsWith("↓") ? "text-[0.65rem] font-semibold text-red-600"
+          : "text-[0.65rem] font-semibold text-slate-600"
+        }
+        title="Vs prior season (MV history)"
+      >
+        {mvTrend}
+      </span>
+    </span>
+  );
+}
+
+function EligiblePlayerRow({
+  pl,
+  careerCallups,
+  mvPriorByPlayer,
+}: {
+  pl: EligiblePoolPlayer;
+  careerCallups: number;
+  mvPriorByPlayer: Map<string, number | null>;
+}) {
   const club = Array.isArray(pl.teams) ? pl.teams[0] : pl.teams;
   return (
     <li className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
@@ -55,7 +94,15 @@ function EligiblePlayerRow({ pl }: { pl: EligiblePoolPlayer }) {
         className="flex min-w-0 flex-1 items-center gap-2 font-semibold text-slate-900 hover:text-emerald-800 hover:underline"
       >
         <PlayerAvatar name={pl.name} profilePicUrl={pl.profile_pic_url} />
-        <span className="truncate">{pl.name}</span>
+        <span className="min-w-0 truncate">{pl.name}</span>
+        {careerCallups > 0 ?
+          <span
+            className="inline-flex min-w-[1.2rem] shrink-0 items-center justify-center rounded-md bg-slate-200/90 px-1.5 py-0.5 text-[0.68rem] font-bold tabular-nums leading-none text-slate-700 ring-1 ring-slate-300/80"
+            title="National team call-ups (all seasons)"
+          >
+            {careerCallups}
+          </span>
+        : null}
       </Link>
       <span className="shrink-0 text-xs text-slate-500">{pl.role}</span>
       <div className="flex w-full basis-full items-center justify-end gap-3 text-xs sm:w-auto sm:basis-auto">
@@ -71,9 +118,11 @@ function EligiblePlayerRow({ pl }: { pl: EligiblePoolPlayer }) {
             {club.name}
           </Link>
         : <span className="text-slate-400">No club</span>}
-        <span className="font-mono text-slate-500">
-          {formatMoneyPounds(Number(pl.market_value ?? 0))}
-        </span>
+        <NtPlayerMvWithTrend
+          playerId={pl.id}
+          marketValue={Number(pl.market_value ?? 0)}
+          mvPriorByPlayer={mvPriorByPlayer}
+        />
       </div>
     </li>
   );
@@ -189,9 +238,22 @@ export default async function CountryPage({
       .filter(Boolean) as string[],
   );
 
-  const { data: nationalityPool } =
-    nt && season.trim() ?
-      await supabase
+  const { data: ntCallupHistoryRows } = nt
+    ? await supabase
+        .from("national_team_callups")
+        .select("player_id")
+        .eq("national_team_id", nt.id)
+    : { data: [] as { player_id: string }[] };
+
+  const careerCallupCountByPlayer = new Map<string, number>();
+  for (const r of ntCallupHistoryRows ?? []) {
+    const pid = r.player_id as string;
+    if (!pid) continue;
+    careerCallupCountByPlayer.set(pid, (careerCallupCountByPlayer.get(pid) ?? 0) + 1);
+  }
+
+  const { data: nationalityPool } = nt
+    ? await supabase
         .from("players")
         .select(
           "id, name, role, profile_pic_url, market_value, team_id, teams(id, name, logo_url)",
@@ -225,6 +287,33 @@ export default async function CountryPage({
     const r = (p as { role?: string }).role ?? "";
     return r !== "ST" && r !== "GK";
   });
+
+  const ntMvPlayerIds = [
+    ...new Set([
+      ...(nationalityPool ?? []).map((p) => String((p as { id: unknown }).id)),
+      ...(callupRows ?? []).map((r) => {
+        const pl = r.players as { id?: string } | null;
+        return pl?.id ?? "";
+      }),
+    ]),
+  ].filter(Boolean);
+
+  const { data: ntMvHistRows } =
+    nt && ntMvPlayerIds.length > 0 && currentSeason ?
+      await supabase
+        .from("player_market_value_history")
+        .select("player_id, season_label, market_value")
+        .in("player_id", ntMvPlayerIds)
+    : { data: [] as { player_id: string; season_label: string; market_value: number }[] };
+
+  const mvPriorByPlayer = priorSeasonMvByPlayer(
+    (ntMvHistRows ?? []).map((r) => ({
+      player_id: r.player_id as string,
+      season_label: r.season_label as string,
+      market_value: Number(r.market_value),
+    })),
+    currentSeason,
+  );
 
   const tournamentHistory = nt ? await fetchNationalTournamentHistory(supabase, nt.id) : [];
 
@@ -386,7 +475,7 @@ export default async function CountryPage({
   let callupRankConfTotal = 0;
   let callupRankGlobalTotal = 0;
 
-  if (season.trim() && nt) {
+  if (nt) {
     const { data: ntAll } = await supabase
       .from("national_teams")
       .select("id, confederation, countries(name)")
@@ -444,7 +533,7 @@ export default async function CountryPage({
       poolRankGlobalTotal = countryNames.length;
     }
 
-    if (ntIds.length > 0) {
+    if (season.trim() && ntIds.length > 0 && callupsList.length > 0) {
       const { data: allSeasonCallups } = await supabase
         .from("national_team_callups")
         .select("national_team_id, players(market_value)")
@@ -478,6 +567,8 @@ export default async function CountryPage({
     (country.flag_emoji as string | null) ??
     (nt?.flag_emoji as string | null) ??
     countryCodeToFlagEmoji(country.code);
+
+  const callupMvCardTbd = !season.trim() || callupsList.length === 0;
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f1f5f9_0%,#f8fafc_12rem,#f1f5f9_100%)]">
@@ -525,53 +616,12 @@ export default async function CountryPage({
           <>
             <div className="mb-6 mt-8 grid gap-3 xl:grid-cols-2 xl:items-stretch">
               <div className="rounded-2xl border border-slate-200/90 bg-white px-5 py-4 shadow-sm xl:col-start-1 xl:row-start-1">
-                {callupsList.length > 0 ?
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-0 sm:divide-x sm:divide-slate-200">
-                    <div className="min-w-0 sm:pr-4">
-                      <p className="text-xs font-bold uppercase tracking-wider text-slate-500">All nationals MV</p>
-                      <p className="mt-1 text-xl font-black text-slate-900">{formatMoneyPounds(totalPoolValue)}</p>
-                      {(poolRankConf != null || poolRankGlobal != null) && (
-                        <ul className="mt-2.5 space-y-1.5">
-                          {poolRankConf != null ?
-                            <li className="flex flex-wrap items-center gap-2">
-                              <span className={RANK_ROW_LABEL_CLASS}>{nt.confederation}</span>
-                              <RankNumberBubble rank={poolRankConf} total={poolRankConfTotal} />
-                            </li>
-                          : null}
-                          {poolRankGlobal != null ?
-                            <li className="flex flex-wrap items-center gap-2">
-                              <span className={RANK_ROW_LABEL_CLASS}>Global</span>
-                              <RankNumberBubble rank={poolRankGlobal} total={poolRankGlobalTotal} />
-                            </li>
-                          : null}
-                        </ul>
-                      )}
-                    </div>
-                    <div className="min-w-0 border-t border-slate-200 pt-4 sm:border-t-0 sm:pt-0 sm:pl-4">
-                      <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Called-up squad MV</p>
-                      <p className="mt-1 text-xl font-black text-slate-900">{formatMoneyPounds(calledUpValue)}</p>
-                      {(callupRankConf != null || callupRankGlobal != null) && (
-                        <ul className="mt-2.5 space-y-1.5">
-                          {callupRankConf != null ?
-                            <li className="flex flex-wrap items-center gap-2">
-                              <span className={RANK_ROW_LABEL_CLASS}>{nt.confederation}</span>
-                              <RankNumberBubble rank={callupRankConf} total={callupRankConfTotal} />
-                            </li>
-                          : null}
-                          {callupRankGlobal != null ?
-                            <li className="flex flex-wrap items-center gap-2">
-                              <span className={RANK_ROW_LABEL_CLASS}>Global</span>
-                              <RankNumberBubble rank={callupRankGlobal} total={callupRankGlobalTotal} />
-                            </li>
-                          : null}
-                        </ul>
-                      )}
-                    </div>
-                  </div>
-                : (
-                  <>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-0">
+                  <div className="min-w-0 sm:pr-4">
                     <p className="text-xs font-bold uppercase tracking-wider text-slate-500">All nationals MV</p>
-                    <p className="mt-1 text-xl font-black text-slate-900">{formatMoneyPounds(totalPoolValue)}</p>
+                    <p className="mt-1 text-xl font-black text-slate-900">
+                      {formatMoneyPounds(totalPoolValue)}
+                    </p>
                     {(poolRankConf != null || poolRankGlobal != null) && (
                       <ul className="mt-2.5 space-y-1.5">
                         {poolRankConf != null ?
@@ -588,8 +638,45 @@ export default async function CountryPage({
                         : null}
                       </ul>
                     )}
-                  </>
-                )}
+                  </div>
+                  <div className="min-w-0 border-t border-slate-200 pt-4 max-sm:rounded-xl max-sm:bg-slate-50/90 max-sm:p-3 sm:border-t-0 sm:rounded-xl sm:bg-slate-50/90 sm:pt-0 sm:pl-4 sm:pr-3 sm:ring-1 sm:ring-slate-200/70">
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                      Called-up squad MV
+                    </p>
+                    <p className="mt-1 text-xl font-black text-slate-900">
+                      {callupMvCardTbd ?
+                        <span className="text-slate-400">TBD</span>
+                      : formatMoneyPounds(calledUpValue)}
+                    </p>
+                    {callupMvCardTbd ?
+                      <ul className="mt-2.5 space-y-1.5">
+                        <li className="flex flex-wrap items-center gap-2">
+                          <span className={RANK_ROW_LABEL_CLASS}>{nt.confederation}</span>
+                          <RankTbdBubble />
+                        </li>
+                        <li className="flex flex-wrap items-center gap-2">
+                          <span className={RANK_ROW_LABEL_CLASS}>Global</span>
+                          <RankTbdBubble />
+                        </li>
+                      </ul>
+                    : (callupRankConf != null || callupRankGlobal != null) ?
+                      <ul className="mt-2.5 space-y-1.5">
+                        {callupRankConf != null ?
+                          <li className="flex flex-wrap items-center gap-2">
+                            <span className={RANK_ROW_LABEL_CLASS}>{nt.confederation}</span>
+                            <RankNumberBubble rank={callupRankConf} total={callupRankConfTotal} />
+                          </li>
+                        : null}
+                        {callupRankGlobal != null ?
+                          <li className="flex flex-wrap items-center gap-2">
+                            <span className={RANK_ROW_LABEL_CLASS}>Global</span>
+                            <RankNumberBubble rank={callupRankGlobal} total={callupRankGlobalTotal} />
+                          </li>
+                        : null}
+                      </ul>
+                    : null}
+                  </div>
+                </div>
               </div>
 
               <section className="rounded-2xl border border-slate-200/90 bg-white px-3 py-2 shadow-sm xl:col-start-1 xl:row-start-2">
@@ -721,9 +808,11 @@ export default async function CountryPage({
                             {club.name}
                           </Link>
                         : <span className="text-slate-400">No club</span>}
-                        <span className="font-mono text-slate-500">
-                          {formatMoneyPounds(Number(pl.market_value ?? 0))}
-                        </span>
+                        <NtPlayerMvWithTrend
+                          playerId={pl.id}
+                          marketValue={Number(pl.market_value ?? 0)}
+                          mvPriorByPlayer={mvPriorByPlayer}
+                        />
                       </div>
                     </li>
                   );
@@ -848,21 +937,45 @@ export default async function CountryPage({
                 : "No players found with this nationality."}
               </p>
             : <ul className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
-                {eligibleStrikers.map((raw) => (
-                  <EligiblePlayerRow key={(raw as EligiblePoolPlayer).id} pl={raw as EligiblePoolPlayer} />
-                ))}
+                {eligibleStrikers.map((raw) => {
+                  const pl = raw as EligiblePoolPlayer;
+                  return (
+                    <EligiblePlayerRow
+                      key={pl.id}
+                      pl={pl}
+                      careerCallups={careerCallupCountByPlayer.get(pl.id) ?? 0}
+                      mvPriorByPlayer={mvPriorByPlayer}
+                    />
+                  );
+                })}
                 {eligibleStrikers.length > 0 && eligibleGks.length > 0 ?
                   <EligibleRoleDivider label="Goalkeepers" />
                 : null}
-                {eligibleGks.map((raw) => (
-                  <EligiblePlayerRow key={(raw as EligiblePoolPlayer).id} pl={raw as EligiblePoolPlayer} />
-                ))}
+                {eligibleGks.map((raw) => {
+                  const pl = raw as EligiblePoolPlayer;
+                  return (
+                    <EligiblePlayerRow
+                      key={pl.id}
+                      pl={pl}
+                      careerCallups={careerCallupCountByPlayer.get(pl.id) ?? 0}
+                      mvPriorByPlayer={mvPriorByPlayer}
+                    />
+                  );
+                })}
                 {(eligibleStrikers.length > 0 || eligibleGks.length > 0) && eligibleOther.length > 0 ?
                   <EligibleRoleDivider label="Other positions" />
                 : null}
-                {eligibleOther.map((raw) => (
-                  <EligiblePlayerRow key={(raw as EligiblePoolPlayer).id} pl={raw as EligiblePoolPlayer} />
-                ))}
+                {eligibleOther.map((raw) => {
+                  const pl = raw as EligiblePoolPlayer;
+                  return (
+                    <EligiblePlayerRow
+                      key={pl.id}
+                      pl={pl}
+                      careerCallups={careerCallupCountByPlayer.get(pl.id) ?? 0}
+                      mvPriorByPlayer={mvPriorByPlayer}
+                    />
+                  );
+                })}
               </ul>
             }
           </section>

@@ -1943,7 +1943,9 @@ function ReconcileTeamBalancesSection({
       const rows = (data.mismatches ?? []) as BalanceDriftRow[];
       setMismatches(rows);
       if (rows.length === 0) {
-        setMessage("All clubs match the ledger: each balance equals budget plus the sum of its transaction rows.");
+        setMessage(
+          "All clubs match the ledger: each current balance equals its opening anchor plus the sum of its transaction rows.",
+        );
       } else {
         setMessage(
           `${rows.length} club(s) do not match that formula. Compare Current vs Expected — if Expected is right, use Fix balances.`,
@@ -1976,7 +1978,7 @@ function ReconcileTeamBalancesSection({
         setMessage(`Updated ${fixed} club balance(s). All match the ledger now.`);
       } else {
         setMessage(
-          `Updated ${fixed} club(s). ${remaining.length} still drift — check whether budgets were edited without matching transactions.`,
+          `Updated ${fixed} club(s). ${remaining.length} still drift — investigate stuck payouts or rows changed outside Admin.`,
         );
       }
     } catch (e) {
@@ -1993,11 +1995,15 @@ function ReconcileTeamBalancesSection({
         <h2 className="text-lg font-semibold">Club balances vs ledger</h2>
       </div>
       <p className="mb-3 text-sm text-zinc-600">
-        <strong>Expected balance</strong> is each club&apos;s <code className="rounded bg-zinc-100 px-1 font-mono text-xs">budget</code>{" "}
-        (reference opening bankroll) <strong>plus</strong> the sum of all rows in{" "}
-        <code className="rounded bg-zinc-100 px-1 font-mono text-xs">team_transactions</code>. Payouts and transfers
-        should always move both together; drift usually means a stuck write, a manual cash edit, or a budget change out of
-        sync.
+        <strong>Expected balance</strong> = <strong>opening anchor</strong>{" "}
+        <span className="text-zinc-500">(DB column </span>
+        <code className="rounded bg-zinc-100 px-1 font-mono text-xs">budget</code>
+        <span className="text-zinc-500">)</span> <strong>+</strong> sum of all{" "}
+        <code className="rounded bg-zinc-100 px-1 font-mono text-xs">team_transactions</code> amounts. Day-to-day cash
+        is only <code className="rounded bg-zinc-100 px-1 font-mono text-xs">current_balance</code>; the anchor is
+        updated for you when you change balance in <strong>Edit team</strong> so it stays &quot;cash minus everything
+        logged.&quot; Drift means the bank figure and the journal disagree (rare partial write or DB edited outside
+        Admin).
       </p>
       <div className="mb-4 flex flex-wrap gap-2">
         <button
@@ -2025,7 +2031,9 @@ function ReconcileTeamBalancesSection({
             <thead className="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
               <tr>
                 <th className="px-3 py-2">Club</th>
-                <th className="px-3 py-2 text-right">Budget</th>
+                <th className="px-3 py-2 text-right" title="Ledger opening anchor (teams.budget)">
+                  Anchor
+                </th>
                 <th className="px-3 py-2 text-right">Σ transactions</th>
                 <th className="px-3 py-2 text-right">Expected</th>
                 <th className="px-3 py-2 text-right">Current</th>

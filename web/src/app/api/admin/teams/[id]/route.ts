@@ -27,6 +27,7 @@ export async function PATCH(req: Request, { params }: Params) {
     const { id } = await params;
     const body = (await req.json()) as Record<string, unknown>;
     const updates: Record<string, unknown> = {};
+    const supabase = getSupabaseAdmin();
 
     if (typeof body.name === "string" && body.name.trim()) {
       updates.name = body.name.trim();
@@ -42,14 +43,31 @@ export async function PATCH(req: Request, { params }: Params) {
     }
     if (typeof body.league_id === "string") updates.league_id = body.league_id;
     if (body.league_id === null || body.league_id === "") updates.league_id = null;
-    if (typeof body.budget === "number" && !Number.isNaN(body.budget)) {
+    const budgetFromBody =
+      typeof body.budget === "number" && !Number.isNaN(body.budget);
+    if (budgetFromBody) {
       updates.budget = body.budget;
     }
     if (
       typeof body.current_balance === "number" &&
       !Number.isNaN(body.current_balance)
     ) {
-      updates.current_balance = body.current_balance;
+      const newBalance = body.current_balance;
+      updates.current_balance = newBalance;
+      /**
+       * `budget` is the ledger “opening” anchor: invariant is `current_balance = budget + Σ(tx)`.
+       * Wages/prizes only touch `current_balance` + transactions. If you edit cash here without
+       * sending `budget`, re-derive the anchor so the balance checker stays meaningful.
+       */
+      if (!budgetFromBody) {
+        const { data: txRows, error: txe } = await supabase
+          .from("team_transactions")
+          .select("amount")
+          .eq("team_id", id);
+        if (txe) throw new Error(txe.message);
+        const sumTx = (txRows ?? []).reduce((s, r) => s + Number(r.amount ?? 0), 0);
+        updates.budget = newBalance - sumTx;
+      }
     }
     if (body.trophies !== undefined) {
       if (!Array.isArray(body.trophies)) {
@@ -64,8 +82,6 @@ export async function PATCH(req: Request, { params }: Params) {
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
     }
-
-    const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
       .from("teams")
       .update(updates)

@@ -14,10 +14,14 @@ export type TeamBalanceDrift = {
 };
 
 /**
- * Expected cash on hand = `teams.budget` (reference opening bankroll, not reduced by spending) +
- * sum of `team_transactions.amount`. Every automated movement uses {@link recordTeamTransaction},
- * which logs and adjusts `current_balance` together — so drift usually means a partial failure,
- * manual `current_balance` edit, or `budget` changed out of sync with reality.
+ * Expected cash on hand = `teams.budget` + sum of `team_transactions.amount`.
+ *
+ * In this app, **only `current_balance` is spending money** during the sim (wages, prizes,
+ * transfers all go through {@link recordTeamTransaction}). The `budget` column is a **ledger
+ * anchor**: it should equal “cash when the journal netted zero,” i.e. `current_balance − Σ(tx)`.
+ * When you save **Current balance** in Admin without touching `budget`, the PATCH handler
+ * re-anchors `budget` so this identity holds. Drift then means a stuck write or a direct DB edit
+ * that bypassed the API.
  */
 export async function computeTeamBalanceDrifts(
   supabase: SupabaseClient,

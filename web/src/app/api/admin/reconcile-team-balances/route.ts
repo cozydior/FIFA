@@ -7,6 +7,7 @@ import {
 
 /**
  * Compare each club's `current_balance` to `budget + Σ(team_transactions.amount)`.
+ * Here `budget` is the ledger opening anchor (kept in sync when you PATCH `current_balance` via Admin).
  * POST `{ "apply": true }` sets `current_balance` to the expected value for every mismatch.
  */
 export async function POST(req: Request) {

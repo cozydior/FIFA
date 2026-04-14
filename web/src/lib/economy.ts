@@ -4,20 +4,20 @@
 
 export const PAYOUTS_GBP = {
   championsLeague: {
-    winner:          40_000_000,
-    finalist:        20_000_000,
-    semiFinalist:     8_000_000,
-    quarterFinalist:  3_000_000,
+    winner:          80_000_000,
+    finalist:        40_000_000,
+    semiFinalist:    16_000_000,
+    quarterFinalist:  6_000_000,
   },
   league: {
-    title:           20_000_000,
-    d1Placement:      8_000_000,
-    d2Placement:      3_000_000,
-    promotion:       10_000_000,
+    title:           40_000_000,
+    d1Placement:     16_000_000,
+    d2Placement:      6_000_000,
+    promotion:       20_000_000,
   },
   regionalCup: {
-    winner:          10_000_000,
-    finalist:         4_000_000,
+    winner:          20_000_000,
+    finalist:         8_000_000,
   },
 } as const;
 

@@ -166,8 +166,8 @@ export default async function GoatsPage() {
           </h1>
           <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-stone-400">
             Season champions for the Ballon d&apos;Or (best striker) and Palm d&apos;Or (best
-            goalkeeper). Totals combine league and international for the winning season; club shows
-            current squad affiliation.
+            goalkeeper). Totals combine league and international for the winning season; club is the
+            domestic team recorded for that season (or current club if not stored yet).
           </p>
         </header>
 

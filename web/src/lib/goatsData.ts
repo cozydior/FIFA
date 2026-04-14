@@ -39,7 +39,7 @@ type PlayerEmbed = {
 /**
  * Ballon d'Or (ST) & Palm d'Or (GK) winners by season, with that season's stats
  * (league `stats` + summed `player_international_stats` across competitions)
- * and the player's current club (DB has no historical club snapshot per award).
+ * and the club from `stats.team_id` for that award season when set (else current `players.team`).
  */
 export async function fetchGoatHistory(): Promise<SeasonGoatPair[]> {
   const supabase = getSupabaseAdmin();
@@ -57,7 +57,7 @@ export async function fetchGoatHistory(): Promise<SeasonGoatPair[]> {
   const [{ data: statsRows }, { data: playerRows }, intlBundle] = await Promise.all([
     supabase
       .from("stats")
-      .select("player_id, season, goals, saves, shots_taken, shots_faced")
+      .select("player_id, season, goals, saves, shots_taken, shots_faced, team_id")
       .in("player_id", playerIds)
       .in("season", seasonLabels),
     supabase
@@ -100,9 +100,27 @@ export async function fetchGoatHistory(): Promise<SeasonGoatPair[]> {
         saves: Number(r.saves ?? 0),
         shotsTaken: Number(r.shots_taken ?? 0),
         shotsFaced: Number(r.shots_faced ?? 0),
+        teamId: (r.team_id as string | null | undefined) ?? null,
       },
     ]),
   );
+
+  const awardSeasonTeamIds = new Set<string>();
+  for (const a of awards) {
+    const row = statMap.get(statKey(a.player_id, a.season_label));
+    if (row?.teamId) awardSeasonTeamIds.add(row.teamId);
+  }
+
+  const teamById = new Map<string, { id: string; name: string; logo_url: string | null }>();
+  if (awardSeasonTeamIds.size > 0) {
+    const { data: seasonTeams } = await supabase
+      .from("teams")
+      .select("id, name, logo_url")
+      .in("id", [...awardSeasonTeamIds]);
+    for (const tm of seasonTeams ?? []) {
+      teamById.set(tm.id as string, tm as { id: string; name: string; logo_url: string | null });
+    }
+  }
 
   /** Sum international rows per player/season (NL + GC + WC, etc.). */
   const intlSumByKey = new Map<
@@ -167,6 +185,17 @@ export async function fetchGoatHistory(): Promise<SeasonGoatPair[]> {
     const k = statKey(a.player_id, a.season_label);
     const st = statMap.get(k);
     const ig = intlSumByKey.get(k);
+    const seasonTeamRow = st?.teamId ? teamById.get(st.teamId) : null;
+    const teamFromSeason = seasonTeamRow
+      ? {
+          id: seasonTeamRow.id,
+          name: seasonTeamRow.name,
+          logoUrl: seasonTeamRow.logo_url ?? null,
+        }
+      : null;
+    const teamFromPlayer = t
+      ? { id: t.id, name: t.name, logoUrl: t.logo_url ?? null }
+      : null;
     const winner: GoatWinner = {
       seasonLabel: a.season_label,
       awardType: a.award_type as "ballon_dor" | "palm_dor",
@@ -175,9 +204,7 @@ export async function fetchGoatHistory(): Promise<SeasonGoatPair[]> {
       role: p.role,
       profilePicUrl: p.profile_pic_url ?? null,
       nationalityFlagEmoji: nationalityFlagEmoji(p.nationality),
-      team: t
-        ? { id: t.id, name: t.name, logoUrl: t.logo_url ?? null }
-        : null,
+      team: teamFromSeason ?? teamFromPlayer,
       goals: (st?.goals ?? 0) + (ig?.goals ?? 0),
       saves: (st?.saves ?? 0) + (ig?.saves ?? 0),
       shotsTaken: (st?.shotsTaken ?? 0) + (ig?.shotsTaken ?? 0),

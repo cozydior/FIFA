@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { fetchLeagueStandingsForSeasonEnd } from "@/lib/seasonEconomy";
+import {
+  fetchLeagueStandingsForSeasonEnd,
+  syncPlayerMarketValueHistoryForSeason,
+} from "@/lib/seasonEconomy";
 import { persistSeasonEndToSupabase } from "@/lib/seasonEndPersistence";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import {
@@ -58,6 +61,8 @@ export async function POST(req: Request) {
       applyLeaguePayouts: !skipLeaguePayouts,
       seedChampionsLeague,
     });
+
+    await syncPlayerMarketValueHistoryForSeason(supabase, seasonLabel);
 
     let nextSeasonLabel: string | null = null;
     if (body.advanceSeason === true) {

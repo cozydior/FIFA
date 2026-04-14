@@ -1,6 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { PAYOUTS_GBP, marketValueFromHiddenOvr } from "@/lib/economy";
-import { recordTeamTransaction } from "@/lib/economyServer";
+import {
+  recordTeamTransaction,
+  upsertPlayerMarketValueHistoryRow,
+} from "@/lib/economyServer";
 import {
   computeStandings,
   filterGhostZeroStandings,
@@ -519,6 +522,34 @@ export async function applyChampionsLeaguePayoutsFromFixtures(
   });
 }
 
+/**
+ * Snapshot every player's **current** `market_value` into history for `seasonLabel`.
+ * Run when closing a season so the graph / “prior season” MV match domestic + intl bumps
+ * (international games otherwise only updated `players`, not history).
+ */
+export async function syncPlayerMarketValueHistoryForSeason(
+  supabase: SupabaseClient,
+  seasonLabel: string,
+): Promise<{ rows: number }> {
+  const { data: players, error } = await supabase.from("players").select("id, market_value");
+  if (error) throw new Error(error.message);
+  const rows = (players ?? []).map((p) => ({
+    player_id: p.id as string,
+    season_label: seasonLabel,
+    market_value: Number(p.market_value ?? 0),
+  }));
+  if (rows.length === 0) return { rows: 0 };
+  const chunk = 250;
+  for (let i = 0; i < rows.length; i += chunk) {
+    const slice = rows.slice(i, i + chunk);
+    const { error: ue } = await supabase
+      .from("player_market_value_history")
+      .upsert(slice, { onConflict: "player_id,season_label" });
+    if (ue) throw new Error(ue.message);
+  }
+  return { rows: rows.length };
+}
+
 /** Recalculate every player's market value from their hidden OVR and snapshot to history. */
 export async function recalculateAllPlayerMarketValues(
   supabase: SupabaseClient,
@@ -539,10 +570,7 @@ export async function recalculateAllPlayerMarketValues(
       .eq("id", p.id);
     if (ue) throw new Error(ue.message);
     if (seasonLabel) {
-      await supabase.from("player_market_value_history").upsert(
-        { player_id: p.id, season_label: seasonLabel, market_value: next },
-        { onConflict: "player_id,season_label" },
-      );
+      await upsertPlayerMarketValueHistoryRow(supabase, p.id as string, seasonLabel, next);
     }
     updated += 1;
   }

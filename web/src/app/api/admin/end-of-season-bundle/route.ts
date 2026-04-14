@@ -7,6 +7,7 @@ import {
   applyPendingRegionalCupFinalPayouts,
   applyChampionsLeaguePayoutsFromFixtures,
   recalculateAllPlayerMarketValues,
+  syncPlayerMarketValueHistoryForSeason,
 } from "@/lib/seasonEconomy";
 import { persistSeasonEndToSupabase } from "@/lib/seasonEndPersistence";
 
@@ -87,6 +88,8 @@ export async function POST(req: Request) {
 
     if (!body.skipMarketValues) {
       result.marketValues = await recalculateAllPlayerMarketValues(supabase, seasonLabel);
+    } else {
+      result.mvHistorySync = await syncPlayerMarketValueHistoryForSeason(supabase, seasonLabel);
     }
 
     return NextResponse.json(result);

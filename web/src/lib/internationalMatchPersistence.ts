@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PlayerMatchResult } from "@/lib/simEngine";
 import { progressInternationalCompetition } from "@/lib/international";
+import { upsertPlayerMarketValueHistoryRow } from "@/lib/economyServer";
 
 const SLUGS = ["nations_league", "gold_cup", "world_cup", "friendlies"] as const;
 type IntlSlug = (typeof SLUGS)[number];
@@ -130,6 +131,7 @@ export async function persistInternationalMatchdayResult(
         peak_market_value: Math.max(Number(pl?.peak_market_value ?? 0), nextMv),
       })
       .eq("id", p.id);
+    await upsertPlayerMarketValueHistoryRow(supabase, p.id, seasonLabel, nextMv);
   }
 
   if (slug !== "friendlies") {

@@ -48,6 +48,20 @@ export async function recordTeamTransaction(
   }
 }
 
+/** Keeps `player_market_value_history` in sync with `players.market_value` for charts and YoY trends. */
+export async function upsertPlayerMarketValueHistoryRow(
+  supabase: SupabaseClient,
+  playerId: string,
+  seasonLabel: string,
+  marketValue: number,
+): Promise<void> {
+  const { error } = await supabase.from("player_market_value_history").upsert(
+    { player_id: playerId, season_label: seasonLabel, market_value: marketValue },
+    { onConflict: "player_id,season_label" },
+  );
+  if (error) throw new Error(error.message);
+}
+
 /**
  * Charge 50% of squad MV once per season. Returns teams that could not afford (negative balance allowed = debt).
  * Teams with `last_wages_season` already equal to `seasonLabel` are skipped (idempotent) and counted in `skippedAlreadyPaid`.

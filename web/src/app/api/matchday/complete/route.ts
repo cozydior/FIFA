@@ -7,6 +7,7 @@ import {
   progressRegionalCupKnockouts,
 } from "@/lib/regionalCupProgress";
 import { applyClubMatchStatsUpsert } from "@/lib/applyClubMatchStatsUpsert";
+import { upsertPlayerMarketValueHistoryRow } from "@/lib/economyServer";
 import type { PlayerMatchResult, ScoreBreakdown } from "@/lib/simEngine";
 
 type BodyPlayer = {
@@ -233,15 +234,7 @@ export async function POST(req: Request) {
         if (me) throw new Error(me.message);
       }
 
-      const { error: he } = await supabase.from("player_market_value_history").upsert(
-        {
-          player_id: p.id,
-          season_label: season,
-          market_value: finalMv,
-        },
-        { onConflict: "player_id,season_label" },
-      );
-      if (he) throw new Error(he.message);
+      await upsertPlayerMarketValueHistoryRow(supabase, p.id, season, finalMv);
     }
 
     await applyClubMatchStatsUpsert(supabase, season, players);

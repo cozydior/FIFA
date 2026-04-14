@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentSeasonLabel } from "@/lib/seasonSettings";
 import { progressInternationalCompetition } from "@/lib/international";
 import { simulateNationalTeamFixture } from "@/lib/internationalSim";
+import { upsertPlayerMarketValueHistoryRow } from "@/lib/economyServer";
 
 export async function POST(req: Request) {
   try {
@@ -133,6 +134,7 @@ export async function POST(req: Request) {
             peak_market_value: Math.max(Number(pl?.peak_market_value ?? 0), nextMv),
           })
           .eq("id", p.id);
+        await upsertPlayerMarketValueHistoryRow(supabase, p.id, seasonLabel, nextMv);
       }
 
       completed += 1;
